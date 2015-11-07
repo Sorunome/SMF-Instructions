@@ -116,6 +116,232 @@ function InstructionsMain(){
 	InstructionsDisplayCat();
 }
 
+
+class Instruction{
+	private $exists = false;
+	private $id = -1;
+	private $dispId = '-1';
+	private $steps = array();
+	private $numSteps = 0;
+	private $owner = -1;
+	private $name = '';
+	private $name_parsed = '';
+	private $category = -1;
+	private $upvotes = 0;
+	private $downvotes = 0;
+	private $topic_id = -1;
+	private $publish_date = 0;
+	private $new_instruction = -1;
+	private $origDispId = '';
+	private $published = false;
+	private function makeSqlArray($a){
+		$s = '';
+		foreach($a as $i){
+			$s .= '['.$i.']';
+		}
+		return $s;
+	}
+	private function getSqlArray($s){
+		$a = array();
+		foreach(explode('[',$s) as $i){
+			if($i!=']' && $i!=''){
+				$a[] = substr($i,0,-1);
+			}
+		}
+		return $a;
+	}
+	private $sql_image_fetch_vars = 'id,annotations,extension,resizeTypes,name';
+	private function getImageObject($res){
+		global $modSettings;
+		
+		// get image URL sizes
+		$id = (int)$res['id'];
+		$imgdir = $modSettings['instructions_uploads_url']."/$id/";
+		$resizeTypes = explode(',',$res['resizeTypes']);
+		$urls = array(
+			'square' => $imgdir.'square.jpg',
+			'largesquare' => $imgdir.'largesquare.jpg',
+			'original' => $imgdir.'original.'.$res['extension']
+		);
+		if(in_array('small',$resizeTypes)){
+			$urls['small'] = $imgdir.'small.jpg';
+		}else{
+			$urls['small'] = $urls['original'];
+		}
+		
+		if(in_array('medium',$resizeTypes)){
+			$urls['medium'] = $imgdir.'medium.jpg';
+		}else{
+			$urls['medium'] = $urls['original'];
+		}
+		
+		if(in_array('large',$resizeTypes)){
+			$urls['large'] = $imgdir.'large.jpg';
+		}else{
+			$urls['large'] = $urls['original'];
+		}
+		
+		
+		$annotations = json_decode($res['annotations'],true);
+		foreach($annotations as &$a){
+			$a['body_parsed'] = parse_bbc(htmlentities($a['body']));
+		}
+		return array(
+			'urls' => $urls,
+			'id' => $id,
+			'annotations' => $annotations,
+			'name' => $res['name']
+		);
+	}
+	private function getImages($ids){
+		global $smcFunc;
+		if(sizeof($ids) == 0 || !$ids){
+			return array();
+		}
+		
+		$a = array();
+		$request = $smcFunc['db_query']('','SELECT '.$this->sql_image_fetch_vars.' FROM {db_prefix}instructions_images WHERE id IN ('.implode(',', array_map('intval', $ids)).') AND success=1',array());
+		while($res = $smcFunc['db_fetch_assoc']($request)){
+			$a[] = $this->getImageObject($res);
+		}
+		$smcFunc['db_free_result']($request);
+		
+		// now all that's left is to sort the stuff correctly!
+		$a2 = array();
+		foreach($ids as $id){
+			foreach($a as $i){
+				if($i['id'] == $id){
+					$a2[] = $i;
+					break;
+				}
+			}
+		}
+		return $a2;
+	}
+	private function fullParseStep($i){
+		global $modSettings,$sourcedir,$boardurl,$context,$scripturl;
+		if(empty($this->steps[$i])){
+			return false;
+		}
+		$step = &$this->steps[$i];
+		$step['body_parsed'] = parse_bbc(htmlentities($step['body']));
+		$step['title_parsed'] = parse_bbc(htmlentities($step['title']));
+		$addUrl = $this->new_instruction != -1?';original':'';
+		if(!empty($modSettings['pretty_enable_filters'])){
+			include_once($sourcedir.'/Subs-PrettyUrls.php');
+			$title = pretty_generate_url($step['title']);
+			$addUrl = ($title != ''?';stepname='.$title:'').$addUrl;
+		}
+		$step['url'] = $scripturl.'?action=instructions;id='.$this->id.($i != 0?';step='.$i:'').$addUrl;
+		$step['url_edit'] = $scripturl.'?action=instructions;edit='.$this->id.';step='.$i;
+		$step['images'] = $this->getImages($step['image_ids']);
+		
+		
+		//var_dump($this->steps[$i]);
+		return true;
+	}
+	function __construct($id,$follow = false,$depth = 0,$origDispId = ''){
+		global $smcFunc;
+		$id = str_replace("\x12#039;","\x12",str_replace('"',"\x12",str_replace("\x26","\x12",$id)));
+		$instruction_name = '';
+		
+		$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status,category,upvotes,downvotes,topic_id,UNIX_TIMESTAMP(publish_date) AS publish_date,new_instruction FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id} LIMIT 1',array('id' => $id));
+		$instr = $smcFunc['db_fetch_assoc']($request);
+		$smcFunc['db_free_result']($request);
+		
+		if($instr){
+			$this->id = (int)$instr['id'];
+			if($instr['url']!=''){
+				$this->dispId = $instr['url'];
+			}else{
+				$this->dispId = $id;
+			}
+			if($follow && !empty($instr['new_instruction']) && $instr['new_instruction']!=-1 && $depth <= 10){
+				if($this->__construct($instr['new_instruction'],true,$depth+1,$origDispId == ''?$this->dispId:$origDispId)){
+					return true;
+				}
+			}
+			
+			$this->exists = true;
+			$this->owner = (int)$instr['owner'];
+			$this->name = $instr['name'];
+			$this->category = (int)$instr['category'];
+			$this->upvotes = (int)$instr['upvotes'];
+			$this->downvotes = (int)$instr['downvotes'];
+			$this->topic_id = (int)$instr['topic_id'];
+			$this->publish_date = (int)$instr['publish_date'];
+			$this->new_instruction = (int)$instr['new_instruction'];
+			$this->origDispId = $origDispId;
+			$this->published = $this->category != -1;
+			
+			$request = $smcFunc['db_query']('','SELECT id FROM {db_prefix}instructions_steps WHERE instruction_id={int:id}',array('id' => $this->id));
+			$this->numSteps = $smcFunc['db_num_rows']($request);
+			$smcFunc['db_free_result']($request);
+			
+		}
+		return true;
+	}
+	public function loadStep($ids){
+		global $smcFunc;
+		if(!$this->exists){
+			return $this;
+		}
+		if(!is_array($ids)){
+			$ids = array($ids);
+		}
+		
+		$ids = array_unique($ids); // we only want to be looking at unique ids!
+		foreach($ids as $i => $var){
+			$unset = false;
+			if(isset($this->steps[$var])){
+				if(!$this->steps[$var]['full_parse']){ // we already semi-loaded this step, so let's parse it full!
+					$unset = $this->fullParseStep($var);
+				}
+			}else{
+				$unset = $var >= $this->numSteps;
+			}
+			if($unset){
+				unset($ids[$i]);
+			}
+		}
+		if(sizeof($ids) == 0){ // if we have nothing to load then there is no need to run the sql query!
+			return $this;
+		}
+		
+		sort($ids);
+		$min = min($ids);
+		$max = max($ids);
+		
+		$result = $smcFunc['db_query']('','SELECT id,body,images,title,main_image FROM {db_prefix}instructions_steps WHERE instruction_id={int:instr_id} ORDER BY sorder ASC LIMIT {int:lower},{int:num}',array(
+			'instr_id' => $this->id,
+			'lower' => $min,
+			'num' => $max - $min + 1
+		));
+		$i = $min;
+		while($row = $smcFunc['db_fetch_assoc']($result)){
+			$this->steps[$i] = array(
+				'id' => (int)$row['id'],
+				'body' => $row['body'],
+				'image_ids' => $this->getSqlArray($row['images']),
+				'title' => $row['title'],
+				'main_image' => (int)$row['main_image'],
+				'full_parse' => false
+			);
+			if(in_array($i,$ids)){ // remember, only full-load the steps which we actually want to fetch!
+				$this->fullParseStep($i);
+			}
+			$i++;
+		}
+		$smcFunc['db_free_result']($result);
+		
+		return $this;
+	}
+	function loadSteps($ids){
+		return $this->loadStep($ids);
+	}
+}
+
+
 function getUrl($s){
 	return str_replace("\x12","'",$s);
 }
