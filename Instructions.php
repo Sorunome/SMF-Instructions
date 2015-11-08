@@ -5,6 +5,17 @@ if (!defined('SMF'))
 function InstructionsMain(){
 	global $context, $modSettings, $scripturl, $txt, $settings;
 	global $user_info, $smcFunc, $board, $sourcedir, $board_info;
+	loadLanguage('Instructions');
+	loadTemplate('Instructions');
+	$instr = new Instruction($_REQUEST['id']?$_REQUEST['id']:-1,!isset($_REQUEST['original']));
+	$sub_actions = array(
+		'view' => 'InstructionsView',
+		'edit' => 'InstructionsEdit'
+	);
+	if(isset($_REQUEST['sa']) && isset($sub_actions[$_REQUEST['sa']])){
+		$sub_actions[$_REQUEST['sa']]();
+		return;
+	}
 	//InstructionsDisplay();
 	//return;
 	if(isset($_REQUEST['id'])){
@@ -121,19 +132,25 @@ class Instruction{
 	private $exists = false;
 	private $id = -1;
 	private $dispId = '-1';
-	private $steps = array();
+	public $steps = array();
 	private $numSteps = 0;
 	private $owner = -1;
-	private $name = '';
-	private $name_parsed = '';
+	public $name = '';
+	public $name_parsed = '';
 	private $category = -1;
-	private $upvotes = 0;
-	private $downvotes = 0;
+	public $upvotes = 0;
+	public $downvotes = 0;
 	private $topic_id = -1;
-	private $publish_date = 0;
+	public $publish_date = 0;
 	private $new_instruction = -1;
 	private $origDispId = '';
 	private $published = false;
+	public $url = '';
+	public $url_edit = '';
+	private $imageCache = array();
+	private $imageIdCache = array();
+	private $imageCacheUpdater = array();
+	private $imageCacheMap = array();
 	private function makeSqlArray($a){
 		$s = '';
 		foreach($a as $i){
@@ -202,21 +219,43 @@ class Instruction{
 		$a = array();
 		$request = $smcFunc['db_query']('','SELECT '.$this->sql_image_fetch_vars.' FROM {db_prefix}instructions_images WHERE id IN ('.implode(',', array_map('intval', $ids)).') AND success=1',array());
 		while($res = $smcFunc['db_fetch_assoc']($request)){
-			$a[] = $this->getImageObject($res);
+			$a[$res['id']] = $this->getImageObject($res);
 		}
 		$smcFunc['db_free_result']($request);
+		return $a;
+	}
+	private function loadImagesInCache(){
+		$ids = array();
 		
-		// now all that's left is to sort the stuff correctly!
-		$a2 = array();
-		foreach($ids as $id){
-			foreach($a as $i){
-				if($i['id'] == $id){
-					$a2[] = $i;
-					break;
-				}
+		// let's make sure that we haven't loaded the image already
+		foreach(array_unique($this->imageIdCache) as $i){
+			if(!isset($this->imageCache[$i])){
+				$ids[] = $i;
 			}
 		}
-		return $a2;
+		
+		// now load them!
+		$this->imageCache = array_merge($this->imageCache,$this->getImages($ids));
+		
+		// time to build the cache map
+		$this->imageCacheMap = array();
+		foreach($this->imageCache as $i => $img){
+			$this->imageCacheMap[$img['id']] = $i;
+		}
+		
+		// time to call all the cache updaters!
+		foreach($this->imageCacheUpdater as $u){
+			$u();
+		}
+	}
+	private function getImagesFromCache($ids){
+		$a = array();
+		foreach($ids as $i){
+			if(isset($this->imageCacheMap[$i])){
+				$a[] = $this->imageCache[$this->imageCacheMap[$i]];
+			}
+		}
+		return $a;
 	}
 	private function fullParseStep($i){
 		global $modSettings,$sourcedir,$boardurl,$context,$scripturl;
@@ -224,28 +263,72 @@ class Instruction{
 			return false;
 		}
 		$step = &$this->steps[$i];
+		if($step['full_parse']){ // no need to parse it again!
+			return true;
+		}
 		$step['body_parsed'] = parse_bbc(htmlentities($step['body']));
 		$step['title_parsed'] = parse_bbc(htmlentities($step['title']));
-		$addUrl = $this->new_instruction != -1?';original':'';
+		
+		$addUrl = ($this->new_instruction != -1?';original':'').(isset($_REQUEST['allsteps'])?';allsteps#step'.$i:'');
 		if(!empty($modSettings['pretty_enable_filters'])){
 			include_once($sourcedir.'/Subs-PrettyUrls.php');
 			$title = pretty_generate_url($step['title']);
 			$addUrl = ($title != ''?';stepname='.$title:'').$addUrl;
 		}
-		$step['url'] = $scripturl.'?action=instructions;id='.$this->id.($i != 0?';step='.$i:'').$addUrl;
-		$step['url_edit'] = $scripturl.'?action=instructions;edit='.$this->id.';step='.$i;
-		$step['images'] = $this->getImages($step['image_ids']);
+		$step['url'] = $scripturl.'?action=instructions;sa=view;id='.$this->id.($i != 0 && !isset($_REQUEST['allsteps'])?';step='.$i:'').$addUrl;
+		$step['full_parse'] = true;
 		
 		
-		//var_dump($this->steps[$i]);
+		$this->imageCacheUpdater[] = function() use (&$step){
+			$step['images'] = $this->getImagesFromCache($step['image_ids']);
+		};
 		return true;
 	}
-	function __construct($id,$follow = false,$depth = 0,$origDispId = ''){
-		global $smcFunc;
+	public function preLoadSteps(){
+		global $smcFunc,$scripturl,$modSettings,$sourcedir;
+		if(sizeof($this->steps) > 0){ // nothing to do!
+			return $this;
+		}
+		$result = $smcFunc['db_query']('','SELECT id,body,images,title,main_image FROM {db_prefix}instructions_steps WHERE instruction_id={int:instr_id} ORDER BY sorder ASC',array(
+			'instr_id' => $this->id
+		));
+		$i = 0;
+		while($row = $smcFunc['db_fetch_assoc']($result)){
+			
+			$addUrl = ($this->new_instruction != -1?';original':'').(isset($_REQUEST['allsteps'])?';allsteps#step'.$i:'');
+			if(!empty($modSettings['pretty_enable_filters'])){
+				include_once($sourcedir.'/Subs-PrettyUrls.php');
+				$title = pretty_generate_url($step['title']);
+				$addUrl = ($title != ''?';stepname='.$title:'').$addUrl;
+			}
+			
+			$this->steps[$i] = array(
+				'id' => (int)$row['id'],
+				'body' => $row['body'],
+				'image_ids' => $this->getSqlArray($row['images']),
+				'title' => $row['title'],
+				'main_image_id' => $row['main_image'],
+				'full_parse' => false,
+				'url' => $scripturl.'?action=instructions;sa=view;id='.$this->id.($i != 0 && !isset($_REQUEST['allsteps'])?';step='.$i:'').$addUrl,
+				'url_edit' => $scripturl.'?action=instructions;sa=edit;id='.$this->id.';step='.$i
+			);
+			
+			$this->imageIdCache = array_merge($this->imageIdCache,$this->getSqlArray($row['images']),array($row['main_image']));
+			
+			$this->imageCacheUpdater[] = function() use ($i){
+				$this->steps[$i]['main_image'] = $this->getImagesFromCache(array($this->steps[$i]['main_image_id']))[0];
+			};
+			$i++;
+		}
+		$smcFunc['db_free_result']($result);
+		return $this;
+	}
+	public function __construct($id,$follow = false,$depth = 0,$origDispId = ''){
+		global $smcFunc,$sourcedir,$modSettings,$scripturl;
 		$id = str_replace("\x12#039;","\x12",str_replace('"',"\x12",str_replace("\x26","\x12",$id)));
 		$instruction_name = '';
 		
-		$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status,category,upvotes,downvotes,topic_id,UNIX_TIMESTAMP(publish_date) AS publish_date,new_instruction FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id} LIMIT 1',array('id' => $id));
+		$request = $smcFunc['db_query']('','SELECT id,main_image,owner,name,url,status,category,upvotes,downvotes,topic_id,UNIX_TIMESTAMP(publish_date) AS publish_date,new_instruction FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id} LIMIT 1',array('id' => $id));
 		$instr = $smcFunc['db_fetch_assoc']($request);
 		$smcFunc['db_free_result']($request);
 		
@@ -273,74 +356,87 @@ class Instruction{
 			$this->new_instruction = (int)$instr['new_instruction'];
 			$this->origDispId = $origDispId;
 			$this->published = $this->category != -1;
+			$this->main_image_id = (int)$instr['main_image'];
+			$this->imageIdCache = array_merge($this->imageIdCache,array($instr['main_image']));
+			
+			$this->imageCacheUpdater[] = function(){
+				$this->main_image = $this->getImagesFromCache(array($this->main_image_id))[0];
+			};
 			
 			$request = $smcFunc['db_query']('','SELECT id FROM {db_prefix}instructions_steps WHERE instruction_id={int:id}',array('id' => $this->id));
 			$this->numSteps = $smcFunc['db_num_rows']($request);
 			$smcFunc['db_free_result']($request);
 			
 		}
-		return true;
+		$this->url = $scripturl.'?action=instructions;sa=view;id='.$this->dispId;
+		$this->url_edit = $scripturl.'?action=instructions;sa=edit;id='.$this->dispId;
+		return $instr?true:false;
 	}
 	public function loadStep($ids){
 		global $smcFunc;
 		if(!$this->exists){
 			return $this;
 		}
+		if($ids === 'all'){
+			$ids = range(0,$this->numSteps - 1);
+		}
 		if(!is_array($ids)){
 			$ids = array($ids);
 		}
 		
+		$this->preLoadSteps(); // make sure the initial pre-loading is there!
+		
 		$ids = array_unique($ids); // we only want to be looking at unique ids!
 		foreach($ids as $i => $var){
-			$unset = false;
-			if(isset($this->steps[$var])){
-				if(!$this->steps[$var]['full_parse']){ // we already semi-loaded this step, so let's parse it full!
-					$unset = $this->fullParseStep($var);
-				}
-			}else{
-				$unset = $var >= $this->numSteps;
-			}
-			if($unset){
-				unset($ids[$i]);
+			if(isset($this->steps[$var]) && !$this->steps[$var]['full_parse']){
+				$unset = $this->fullParseStep($var);
 			}
 		}
-		if(sizeof($ids) == 0){ // if we have nothing to load then there is no need to run the sql query!
-			return $this;
-		}
-		
-		sort($ids);
-		$min = min($ids);
-		$max = max($ids);
-		
-		$result = $smcFunc['db_query']('','SELECT id,body,images,title,main_image FROM {db_prefix}instructions_steps WHERE instruction_id={int:instr_id} ORDER BY sorder ASC LIMIT {int:lower},{int:num}',array(
-			'instr_id' => $this->id,
-			'lower' => $min,
-			'num' => $max - $min + 1
-		));
-		$i = $min;
-		while($row = $smcFunc['db_fetch_assoc']($result)){
-			$this->steps[$i] = array(
-				'id' => (int)$row['id'],
-				'body' => $row['body'],
-				'image_ids' => $this->getSqlArray($row['images']),
-				'title' => $row['title'],
-				'main_image' => (int)$row['main_image'],
-				'full_parse' => false
-			);
-			if(in_array($i,$ids)){ // remember, only full-load the steps which we actually want to fetch!
-				$this->fullParseStep($i);
-			}
-			$i++;
-		}
-		$smcFunc['db_free_result']($result);
 		
 		return $this;
 	}
-	function loadSteps($ids){
+	public function loadSteps($ids){
 		return $this->loadStep($ids);
+	}
+	public function canView(){
+		global $user_info;
+		if($this->published && allowedTo('inst_can_view_published')){
+			return $this;
+		}
+		if(allowedTo('inst_can_view_unpublished_any') || ($user_info['id'] == $this->owner && allowedTo('inst_can_view_unpublished_own'))){
+			return $this;
+		}
+		fatal_lang_error('instruction_cant_view',false);
+	}
+	public function view(){
+		global $context,$settings;
+		$context['html_headers'] .= '<link rel="stylesheet" type="text/css" href="'.$settings['default_theme_url'].'/css/instructions.css?fin20" />';
+		$context['html_headers'] .= '<script type="text/javascript" src="'.$settings['default_theme_url'].'/scripts/instructions.js?fin20"></script>';
+		$context['page_title'] = $this->name;
+		$context['sub_template'] = 'view';
+		if($this->id == -1){
+			fatal_lang_error('instruction_not_found',false);
+		}
+		$this->canView()->get();
+		return $this;
+	}
+	public function canEdit(){
+		global $user_info;
+		if(allowedTo('inst_can_edit_any') || (($this->id==-1||$user_info['id'] == $this->owner) && allowedTo('inst_can_edit_own'))){
+			return $this;
+		}
+		fatal_lang_error('instruction_cant_edit',false);
+	}
+	public function get(){
+		$this->loadImagesInCache();
+		return $this;
 	}
 }
 
+function InstructionsView(){
+	global $context,$instr;
+	$instr->loadSteps(isset($_REQUEST['allsteps'])?'all':(!empty($_REQUEST['step'])?(int)$_REQUEST['step']:0))->view();
+}
 
 function getUrl($s){
 	return str_replace("\x12","'",$s);

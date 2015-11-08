@@ -44,9 +44,9 @@ ls = (function(){
 	};
 })();
 
-function instruction_init_display(){
+function instruction_init_display(curImgStep){
 	instruction_register_delete();
-	instruction_dispImage(0,false); // add image anotations
+	instruction_dispImage(curImgStep,0,false); // add image anotations
 	var nextImage = function(){
 			var $elem = $('.instruction_imagehover.current').next();
 			if($elem.length > 0){
@@ -65,7 +65,7 @@ function instruction_init_display(){
 				return;
 			}
 			nextImage();
-			instruction_dispImage(id,true);
+			instruction_dispImage(curImgStep,id,true);
 		},
 		prevBigImage = function(){
 			var id = $('#instruction_bigimage > div > img').data('id') - 1;
@@ -73,11 +73,12 @@ function instruction_init_display(){
 				return;
 			}
 			prevImage();
-			instruction_dispImage(id,true);
+			instruction_dispImage(curImgStep,id,true);
 		},
-		startBigImage = function(){
+		startBigImage = function(step){
+			curImgStep = step;
 			$('#instruction_bigimage').addClass('show');
-			instruction_dispImage($('#instruction_mainimage > div > img').data('id'),true);
+			instruction_dispImage(curImgStep,$('#instruction_mainimage_'+curImgStep+' > div > img').data('id'),true);
 		},
 		toggleAnnoatationType = function(){
 			if(ls.get('instruction_annotation_type') == 1){
@@ -87,7 +88,9 @@ function instruction_init_display(){
 			}
 			$(window).trigger('resize'); // cause recalculating the image notes
 		};
-	$('#instruction_mainimage > div > img').click(startBigImage);
+	$('.instruction_mainimage > div > img').click(function(){
+		startBigImage(parseInt($(this).parent().data('step'),10));
+	});
 	$('#instruction_bigimage .close').click(function(e){
 		e.stopPropagation();
 		$('#instruction_bigimage').removeClass('show');
@@ -122,7 +125,7 @@ function instruction_init_display(){
 		}else{
 			switch(e.which){
 				case 70: // f
-					startBigImage();
+					startBigImage(curImgStep);
 					break;
 				case 37: // left
 					if(e.ctrlKey){
@@ -152,27 +155,30 @@ function instruction_init_display(){
 	});
 }
 
-function instruction_dispImage(id,invocedElem){
+function instruction_dispImage(step,id,invocedElem){
+	if(!instruction_images[step][id]){
+		return;
+	}
 	var big = false;
 	if(invocedElem === true){
 		big = true;
 	}
-	var $mainImg = $((big?'#instruction_bigimage':'#instruction_mainimage')+' > div > img'),
-		$annotations = $(big?'#instruction_big_annotations':'#instruction_mainimage_annotations');
+	var $mainImg = $((big?'#instruction_bigimage':'#instruction_mainimage_'+step)+' > div > img'),
+		$annotations = $(big?'#instruction_big_annotations':'#instruction_mainimage_annotations_'+step);
 	if(big){
-		$mainImg.attr('src',instruction_images[id]['urls']['large']);
+		$mainImg.attr('src',instruction_images[step][id]['urls']['large']);
 	}else{
-		$mainImg.attr('src',instruction_images[id]['urls']['medium']);
+		$mainImg.attr('src',instruction_images[step][id]['urls']['medium']);
 	}
 	$mainImg.data('id',id);
 	if(!big && invocedElem!==false){
-		$('.instruction_imageslider > div').removeClass('current');
+		$('#instruction_imageslider_'+step+' > div').removeClass('current');
 	}
 	
 	$annotations.empty();
 	$mainImg.off('resize').off('load');
 	$mainImg.css('margin-left',0);
-	if(instruction_images[id]['annotations']){
+	if(instruction_images[step][id]['annotations']){
 		$mainImg.css('margin-left',0);
 		$(window).off('resize');
 		$(window).resize(function(e){
@@ -183,7 +189,7 @@ function instruction_dispImage(id,invocedElem){
 				$('#instruction_big_annotations').css('max-height',$mainImg.height() - 50);
 			}
 			$annotations.addClass(altAnnotations?'':'hoverannotations').removeClass(altAnnotations?'hoverannotations':'').empty().append(
-				$.map(instruction_images[id]['annotations'],function(a,i){
+				$.map(instruction_images[step][id]['annotations'],function(a,i){
 					return [
 						$('<div>').addClass('instruction_annotation').append(
 							$('<div>').addClass('instruction_annotationBox').css({

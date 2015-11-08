@@ -33,6 +33,59 @@ function getInstructionsTable($inst){
 	echo '</tbody></table>'.$txt['pages'].': '.$inst['page_index'];
 }
 
+function template_view(){
+	global $instr,$context,$txt;
+	echo '<ul class="windowbg instruction_stepcontainer invisibleList">';
+	foreach($instr->steps as $i => $step){
+		echo '<li data-id="',$step['id'],'"><a href="',$step['url'],'" class="instruction_step instruction_imagehover', $step['full_parse']?' current':'' ,'">
+			<div class="instruction_step_img" style="background-image:url(&quot;',htmlentities($step['main_image']['urls']['square']),'&quot;);"></div>
+			<div class="txt">', $i == 0?$txt['inst_intro']:$txt['inst_step'].' '.$i, '</div>
+		</a></li>';
+	}
+	echo '</ul>
+	
+	<div id="instruction_bigimage" class="instructions_overlay"><div><img></img><div id="instruction_big_annotations"></div><span class="close">',$txt['inst_close'],'</span><span class="left"></span><span class="right"></span></div></div>
+	
+	';
+	$images = array();
+	$stepnums = array();
+	foreach($instr->steps as $i => $step){
+		if(!$step['full_parse']){
+			continue;
+		}
+		$stepnums[] = $i;
+		echo '<h1 class="instruction_stepname">',$i==0?'':$txt['inst_step'].' '.$i.': ',$step['title_parsed'].'</h1>
+			<div class="windowbg description instruction_body">';
+		if(sizeof($step['images'] > 0)){
+			$images[$i] = $step['images'];
+			
+			echo '<div class="windowbg2 instruction_imagecontainer">
+			<div class="instruction_mainimage" id="instruction_mainimage_',$i,'">
+			<div data-step="',$i,'">
+			<img src="'.$step['images'][0]['urls']['medium'].'">
+			<div id="instruction_mainimage_annotations_',$i,'"></div>
+			</div>
+			</div>';
+			
+			if(sizeof($step['images']) > 1){
+				echo '<div class="instruction_imageslider" id="instruction_imageslider_',$i,'">';
+				$j = 0;
+				foreach($step['images'] as $img){
+					echo '<div class="instruction_imagehover',$j==0?' current':'','" style="background-image:url(&quot;'.htmlentities($img['urls']['square']).'&quot;);" onclick="instruction_dispImage(',$i,',',$j,',this);"></div>';
+					$j++;
+				}
+				echo '</div>';
+			}
+			echo '</div>';
+		}
+		echo $step['body_parsed'],'</div>';
+	}
+	echo 'asdf<script type="text/javascript">
+	instruction_images = '.json_encode($images).';
+	instruction_init_display('.min($stepnums).');
+	</script>';
+}
+
 function template_category(){
 	global $context,$txt,$modSettings,$scripturl,$settings;
 	$inst = $context['instruction_cat'];
