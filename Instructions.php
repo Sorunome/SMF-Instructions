@@ -128,6 +128,7 @@ function InstructionsMain(){
 }
 
 
+
 class Instruction{
 	private $exists = false;
 	private $id = -1;
@@ -143,14 +144,20 @@ class Instruction{
 	private $topic_id = -1;
 	public $publish_date = 0;
 	private $new_instruction = -1;
-	private $origDispId = '';
-	private $published = false;
+	public $origUrl = '';
+	public $newUrl = '';
+	public $published = false;
+	private $status = -1;
 	public $url = '';
 	public $url_edit = '';
 	private $imageCache = array();
 	private $imageIdCache = array();
 	private $imageCacheUpdater = array();
 	private $imageCacheMap = array();
+	private $html_headers = '';
+	private $import_data = '';
+	private $last_step_id = -1;
+	private $last_step = 0;
 	private function makeSqlArray($a){
 		$s = '';
 		foreach($a as $i){
@@ -267,17 +274,13 @@ class Instruction{
 			return true;
 		}
 		$step['body_parsed'] = parse_bbc(htmlentities($step['body']));
-		$step['title_parsed'] = parse_bbc(htmlentities($step['title']));
 		
-		$addUrl = ($this->new_instruction != -1?';original':'').(isset($_REQUEST['allsteps'])?';allsteps#step'.$i:'');
-		if(!empty($modSettings['pretty_enable_filters'])){
-			include_once($sourcedir.'/Subs-PrettyUrls.php');
-			$title = pretty_generate_url($step['title']);
-			$addUrl = ($title != ''?';stepname='.$title:'').$addUrl;
-		}
-		$step['url'] = $scripturl.'?action=instructions;sa=view;id='.$this->id.($i != 0 && !isset($_REQUEST['allsteps'])?';step='.$i:'').$addUrl;
+		$step['url_edit'] = $this->getUrl('edit',array('step' => $i));
+		
 		$step['full_parse'] = true;
 		
+		$this->last_step_id = $step['id'];
+		$this->last_step = $i;
 		
 		$this->imageCacheUpdater[] = function() use (&$step){
 			$step['images'] = $this->getImagesFromCache($step['image_ids']);
@@ -295,11 +298,9 @@ class Instruction{
 		$i = 0;
 		while($row = $smcFunc['db_fetch_assoc']($result)){
 			
-			$addUrl = ($this->new_instruction != -1?';original':'').(isset($_REQUEST['allsteps'])?';allsteps#step'.$i:'');
-			if(!empty($modSettings['pretty_enable_filters'])){
+			if($i != 0 && !isset($_REQUEST['allsteps']) && !empty($modSettings['pretty_enable_filters'])){
 				include_once($sourcedir.'/Subs-PrettyUrls.php');
 				$title = pretty_generate_url($step['title']);
-				$addUrl = ($title != ''?';stepname='.$title:'').$addUrl;
 			}
 			
 			$this->steps[$i] = array(
@@ -307,10 +308,15 @@ class Instruction{
 				'body' => $row['body'],
 				'image_ids' => $this->getSqlArray($row['images']),
 				'title' => $row['title'],
+				'title_parsed' => parse_bbc(htmlentities($row['title'])),
 				'main_image_id' => $row['main_image'],
 				'full_parse' => false,
-				'url' => $scripturl.'?action=instructions;sa=view;id='.$this->id.($i != 0 && !isset($_REQUEST['allsteps'])?';step='.$i:'').$addUrl,
-				'url_edit' => $scripturl.'?action=instructions;sa=edit;id='.$this->id.';step='.$i
+				'url' => $this->getUrl('view',array(
+					($i!=0 && !isset($_REQUEST['allsteps'])?'step':'') => $i,
+					(!empty($title)?'stepname':'') => $title,
+					($this->new_instruction != -1?'original':''),
+					(isset($_REQUEST['allsteps'])?'allsteps':'')
+				),isset($_REQUEST['allsteps'])?'step'.$i:'')
 			);
 			
 			$this->imageIdCache = array_merge($this->imageIdCache,$this->getSqlArray($row['images']),array($row['main_image']));
@@ -323,15 +329,41 @@ class Instruction{
 		$smcFunc['db_free_result']($result);
 		return $this;
 	}
+	public function getUrl($sa,$params = array(),$hash = ''){
+		if($hash != ''){
+			$hash = '#'.$hash;
+		}
+		$reserved = array(
+			'stepid' => $this->last_step_id
+		);
+		$addUrl = '';
+		foreach($params as $i => $v){
+			if($v === '' || $i === ''){
+				continue;
+			}
+			if(is_int($i)){
+				if(isset($reserved[$v])){
+					$addUrl .= ';'.$v.'='.urlencode($reserved[$v]);
+				}else{
+					$addUrl .= ';'.urlencode($v);
+				}
+			}else{
+				$addUrl .= ';'.urlencode($i).'='.urlencode($v);
+			}
+		}
+		return $scripturl.'?action=instructions;sa='.$sa.';id='.$this->dispId.$addUrl.$hash;
+	}
 	public function __construct($id,$follow = false,$depth = 0,$origDispId = ''){
-		global $smcFunc,$sourcedir,$modSettings,$scripturl;
-		$id = str_replace("\x12#039;","\x12",str_replace('"',"\x12",str_replace("\x26","\x12",$id)));
-		$instruction_name = '';
-		
-		$request = $smcFunc['db_query']('','SELECT id,main_image,owner,name,url,status,category,upvotes,downvotes,topic_id,UNIX_TIMESTAMP(publish_date) AS publish_date,new_instruction FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id} LIMIT 1',array('id' => $id));
-		$instr = $smcFunc['db_fetch_assoc']($request);
-		$smcFunc['db_free_result']($request);
-		
+		global $smcFunc,$sourcedir,$modSettings,$scripturl,$settings;
+		if(is_array($id)){
+			$instr = $id;
+		}else{
+			$id = str_replace("\x12#039;","\x12",str_replace('"',"\x12",str_replace("\x26","\x12",$id)));
+			
+			$request = $smcFunc['db_query']('','SELECT id,main_image,owner,name,url,status,category,upvotes,downvotes,topic_id,UNIX_TIMESTAMP(publish_date) AS publish_date,new_instruction,import_data FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id} LIMIT 1',array('id' => $id));
+			$instr = $smcFunc['db_fetch_assoc']($request);
+			$smcFunc['db_free_result']($request);
+		}
 		if($instr){
 			$this->id = (int)$instr['id'];
 			if($instr['url']!=''){
@@ -348,16 +380,24 @@ class Instruction{
 			$this->exists = true;
 			$this->owner = (int)$instr['owner'];
 			$this->name = $instr['name'];
+			$this->name_parsed = parse_bbc(htmlspecialchars($instr['name']));
 			$this->category = (int)$instr['category'];
 			$this->upvotes = (int)$instr['upvotes'];
 			$this->downvotes = (int)$instr['downvotes'];
 			$this->topic_id = (int)$instr['topic_id'];
 			$this->publish_date = (int)$instr['publish_date'];
 			$this->new_instruction = (int)$instr['new_instruction'];
-			$this->origDispId = $origDispId;
-			$this->published = $this->category != -1;
+			if($origDispId != ''){ // as this is already the display ID we don't need to create the object only to fetch the display-friendly URL
+				$this->origUrl = $scripturl.'?action=instructions;sa=view;id='.$origDispId.';original';
+			}
+			if($origDispId == '' && !empty($instr['new_instruction']) && $instr['new_instruction'] != -1){
+				$this->newUrl = (new Instruction($instr['new_instruction'],false))->url;
+			}
+			$this->status = (int)$instr['status'];
+			$this->published = $instr['status'] >= 1;
 			$this->main_image_id = (int)$instr['main_image'];
 			$this->imageIdCache = array_merge($this->imageIdCache,array($instr['main_image']));
+			$this->import_data = $instr['import_data'];
 			
 			$this->imageCacheUpdater[] = function(){
 				$this->main_image = $this->getImagesFromCache(array($this->main_image_id))[0];
@@ -366,10 +406,10 @@ class Instruction{
 			$request = $smcFunc['db_query']('','SELECT id FROM {db_prefix}instructions_steps WHERE instruction_id={int:id}',array('id' => $this->id));
 			$this->numSteps = $smcFunc['db_num_rows']($request);
 			$smcFunc['db_free_result']($request);
-			
 		}
-		$this->url = $scripturl.'?action=instructions;sa=view;id='.$this->dispId;
-		$this->url_edit = $scripturl.'?action=instructions;sa=edit;id='.$this->dispId;
+		$this->url = $this->getUrl('view');
+		$this->html_headers = '<link rel="stylesheet" type="text/css" href="'.$settings['default_theme_url'].'/css/instructions.css?fin20" />
+					<script type="text/javascript" src="'.$settings['default_theme_url'].'/scripts/instructions.js?fin20"></script>';
 		return $instr?true:false;
 	}
 	public function loadStep($ids){
@@ -400,32 +440,85 @@ class Instruction{
 	}
 	public function canView(){
 		global $user_info;
-		if($this->published && allowedTo('inst_can_view_published')){
-			return $this;
-		}
-		if(allowedTo('inst_can_view_unpublished_any') || ($user_info['id'] == $this->owner && allowedTo('inst_can_view_unpublished_own'))){
-			return $this;
-		}
-		fatal_lang_error('instruction_cant_view',false);
+		return ($this->published && allowedTo('inst_can_view_published')) || allowedTo('inst_can_view_unpublished_any') || ($user_info['id'] == $this->owner && allowedTo('inst_can_view_unpublished_own'));
+	}
+	public function canEdit(){
+		global $user_info;
+		return $this->canView() && (allowedTo('inst_can_edit_any') || (($this->id==-1||$user_info['id'] == $this->owner) && allowedTo('inst_can_edit_own')));
+	}
+	public function canDelete(){
+		global $user_info;
+		return $this->canEdit() && (allowedTo('inst_can_delete_any') || ($user_info['id'] == $this->owner && allowedTo('inst_can_delete_any')));
 	}
 	public function view(){
 		global $context,$settings;
-		$context['html_headers'] .= '<link rel="stylesheet" type="text/css" href="'.$settings['default_theme_url'].'/css/instructions.css?fin20" />';
-		$context['html_headers'] .= '<script type="text/javascript" src="'.$settings['default_theme_url'].'/scripts/instructions.js?fin20"></script>';
+		$context['html_headers'] .= $this->html_headers;
 		$context['page_title'] = $this->name;
 		$context['sub_template'] = 'view';
 		if($this->id == -1){
 			fatal_lang_error('instruction_not_found',false);
 		}
-		$this->canView()->get();
-		return $this;
-	}
-	public function canEdit(){
-		global $user_info;
-		if(allowedTo('inst_can_edit_any') || (($this->id==-1||$user_info['id'] == $this->owner) && allowedTo('inst_can_edit_own'))){
-			return $this;
+		if(!$this->canView()){
+			fatal_lang_error('instruction_cant_view',false);
 		}
-		fatal_lang_error('instruction_cant_edit',false);
+		return $this->get();
+	}
+	public function edit(){
+		global $context,$settings,$smcFunc,$modSettings,$txt;
+		if(!$this->canEdit()){
+			fatal_lang_error('instruction_cant_edit',false);
+		}
+		$context['page_title'] = $txt['inst_edit_title'].$this->name;
+		
+		$context['html_headers'] .= $this->html_headers.'<script type="text/javascript">
+			instruction_edit_id = '.$this->id.'
+		</script>';
+		if($this->status == -1){
+			$context['html_headers'] .= '<script type="text/javascript">
+			instruction_import_data = '.json_encode(json_decode($this->import_data /* to make sure that we don't inject js */)).'
+			</script>';
+			$context['sub_template'] = 'import';
+			return;
+		}
+		// fetching smileys from Subs-Editor.php start (modified)
+		$sceditor_smileys = array();
+		$sceditor_smileys_hidden = array();
+		$smileys_baseurl = $modSettings['smileys_url'].'/'.$modSettings['smiley_sets_default'].'/';
+		$request = $smcFunc['db_query']('', '
+			SELECT code, filename, description, smiley_row, hidden
+			FROM {db_prefix}smileys
+			WHERE hidden IN (0, 2)
+			ORDER BY smiley_row, smiley_order',
+			array(
+			)
+		);
+		while ($row = $smcFunc['db_fetch_assoc']($request))
+		{
+			if(empty($row['hidden'])){
+				$sceditor_smileys[$row['code']] = $smileys_baseurl.$row['filename'];
+			}else{
+				$sceditor_smileys_hidden[$row['code']] = $smileys_baseurl.$row['filename'];
+			}
+		}
+		$smcFunc['db_free_result']($request);
+		// fetching smileys from Subs-Editor.php end
+		
+		$context['html_headers'] .= '
+			<script type="text/javascript">
+			SCEDITOR_SMILEYS = '.json_encode($sceditor_smileys).';
+			SCEDITOR_SMILEYS_HIDDEN = '.json_encode($sceditor_smileys_hidden).';
+			</script>
+			<link rel="stylesheet" type="text/css" href="'.$modSettings['instructions_sceditor_url'].'/themes/default.min.css" media="all" />
+			<script type="text/javascript" src="'.$modSettings['instructions_sceditor_url'].'/jquery.sceditor.bbcode.min.js"></script>
+			<link rel="stylesheet" type="text/css" href="'.$settings['default_theme_url'].'/css/uploadfile.min.css?fin20" />
+			<script type="text/javascript" src="'.$settings['default_theme_url'].'/scripts/jquery.form.min.js?fin20"></script>
+			<script type="text/javascript" src="'.$settings['default_theme_url'].'/scripts/jquery.uploadfile.min.js?fin20"></script>
+			<script type="text/javascript" src="'.$settings['default_theme_url'].'/scripts/jquery-ui.min.js?fin20"></script>
+			<link rel="stylesheet" type="text/css" href="'.$settings['default_theme_url'].'/css/jquery-ui.min.css?fin20" />';
+		
+		$context['sub_template'] = 'edit';
+		
+		return $this;
 	}
 	public function get(){
 		$this->loadImagesInCache();
@@ -434,8 +527,13 @@ class Instruction{
 }
 
 function InstructionsView(){
-	global $context,$instr;
+	global $instr;
 	$instr->loadSteps(isset($_REQUEST['allsteps'])?'all':(!empty($_REQUEST['step'])?(int)$_REQUEST['step']:0))->view();
+}
+
+function InstructionsEdit(){
+	global $instr;
+	$instr->loadSteps(!empty($_REQUEST['step'])?(int)$_REQUEST['step']:0)->edit();
 }
 
 function getUrl($s){
@@ -1010,7 +1108,7 @@ function InstructionsUpdateFirstStep($id){
 	$smcFunc['db_free_result']($request);
 }
 
-function InstructionsEdit($id,$step = 0){
+function InstructionsEdit_old($id,$step = 0){
 	global $context, $modSettings, $scripturl, $txt, $settings;
 	global $user_info, $smcFunc, $board, $mbname;
 	

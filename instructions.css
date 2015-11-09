@@ -36,7 +36,7 @@
 	font-size:120%;
 	color:#C06002;
 }
-table h1.instruction_name {
+.instruction_name {
 	font-size:3em;
 	line-height:normal;
 }
