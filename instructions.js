@@ -343,8 +343,139 @@ function instruction_edit_runImport(){
 	window.location.href = smf_scripturl+'?action=instructions;edit='+instruction_edit_id;
 }
 
-function instruction_edit_buildEditor(){
-	// Replace the <textarea id="editor1"> with an CKEditor
+function instruction_edit_initImport(){
+	var replace = confirm("Replace this instruction with 'ible? Cancle will append it to the end of the instruction."),
+		ibleid = prompt("'ible URL");
+	if(ibleid===null){
+		return;
+	}
+	ibleid = ibleid.replace(/^(http:\/\/www\.instructables\.com\/id\/)([^\/?;#]+)(.*)/,'$2');
+	if(ibleid.indexOf('/')!==-1){
+		alert('Invalid URL');
+		return;
+	}
+	$.getJSON(smf_scripturl+'?action=instructions;getinstructable='+encodeURIComponent(ibleid)).done(function(ible){
+		if(ible.success === false){
+			alert('Instructable not found!');
+			return;
+		}
+		if(ible.type != 'Step by Step'){
+			alert('You can only import step by step instructables!');
+			return;
+		}
+		if(ible.author.url.indexOf(smf_scripturl.split('/index.php')[0])!==0){
+			alert('Please set your homepage URL on instructables temporarily to your forum profile to prove that you own this instruction!');
+			return;
+		}
+		if(!confirm('Continue with import?\nInstructable to import: '+ible.title+'\nImported instructabl will '+(replace?'replace':'be added to')+' the current instruction\nThis can take some time, just leave the page open!')){
+			return;
+		}
+		instruction_edit_save(false,function(){
+			var addInstructions = function(){
+				var totalSteps = ible.steps.length,
+					instructionStepIds = [],
+					addStep = function(i){
+						$.getJSON(smf_scripturl+'?action=instructions;addstep='+instruction_edit_id).done(function(data){
+							if(!data.success){
+								alert("ERROR: Couldn't add a step"+(data.msg?': '+data.msg:'!'));
+								alert('Instructable import failed');
+							}else{
+								var bbcode = $('#instructions_edit_bbceditor').sceditor('instance').toBBCode(ible.steps[i].body),
+									title = ible.steps[i].title;
+								instructionStepIds.push({
+									id:data.stepid,
+									done:false,
+									images:$.map(ible.steps[i].files,function(f){
+										if(f.image){
+											return {
+												url:f.downloadUrl,
+												done:false,
+												annotations:$.map(f.imageNotes,function(a){
+													return {
+														w:a.width,
+														h:a.height,
+														y:a.top,
+														x:a.left,
+														body:a.text
+													}
+												})
+											};
+										}
+									})
+								});
+								$.post(smf_scripturl+'?action=instructions;save='+instruction_edit_id+';stepid='+data.stepid,{
+									body:bbcode,
+									title:title
+								}).done(function(data2){
+									if(!data.success){
+										alert("ERROR: Couldn't save a step"+(data.msg?': '+data.msg:'!'));
+									}
+									i++;
+									if(i < totalSteps){
+										addStep(i);
+									}else{
+										var callback = function(){
+											// here we store in the DB the stuff needed for the import and then redirect to the same page again where the import will begin!
+											$.post(smf_scripturl+'?action=instructions;iblesimport='+instruction_edit_id,{
+												data:JSON.stringify({
+													title:ible.title,
+													steps:instructionStepIds
+												})
+											}).done(function(data){
+												if(!data.success){
+													alert("ERROR: Couldn't initialize image import"+(data.msg?': '+data.msg:'!'));
+												}
+												window.location.href = smf_scripturl+'?action=instructions;edit='+instruction_edit_id; // we are now in image import mode!
+											});
+										};
+										if(replace){
+											// now we can delete the last unneeded step
+											$.getJSON(smf_scripturl+'?action=instructions;deletestep='+instruction_edit_id+';stepid='+instruction_edit_stepid).done(function(data){
+												if(!data.success){
+													alert("ERROR: Couldn't delete a step"+(data.msg?': '+data.msg:'!'));
+												}
+												callback();
+											});
+										}else{
+											callback();
+										}
+									}
+								});
+							}
+						});
+					};
+				addStep(0);
+			};
+			if(replace){
+				// delete all the steps except the one which is currently been edited as we need a step in an instruction
+				var todo_steps = $('ul.instruction_stepcontainer.invisibleList > li').length - 1; // -1 as we need to save one step
+				if(todo_steps>0){
+					$('ul.instruction_stepcontainer.invisibleList > li').map(function(i){
+						var id = parseInt(this.dataset.id,10)
+						if(id!=-1 && id!=instruction_edit_stepid){
+							$.getJSON(smf_scripturl+'?action=instructions;deletestep='+instruction_edit_id+';stepid='+id).done(function(data){
+								if(!data.success){
+									alert("ERROR: Couldn't delete a step"+(data.msg?': '+data.msg:'!'));
+								}
+								todo_steps--;
+								if(todo_steps==0){
+									addInstructions();
+								}
+							});
+						};
+					});
+				}else{
+					addInstructions();
+				}
+			}else{
+				addInstructions();
+			}
+		});
+	});
+}
+
+function instruction_edit_initSCEditor(){
+	// Replace the <textarea id="editor1"> with an SCEditor
 	// instance, using the "bbcode" plugin, customizing some of the
 	// editor configuration options to fit BBCode environment.
 	$.sceditor.plugins.bbcode.bbcode.set('ul',{tags:{'abc':null}}); // add stuff that will never trigger
@@ -440,6 +571,9 @@ function instruction_edit_buildEditor(){
 			hidden:SCEDITOR_SMILEYS_HIDDEN
 		}
 	});
+}
+function instruction_edit_buildEditor(){
+	instruction_edit_initSCEditor();
 	
 	var uploadObj = $('#instructions_fileupload').uploadFile({
 		url:smf_scripturl+'?action=instructions;fileupload=1',
@@ -487,7 +621,7 @@ function instruction_edit_buildEditor(){
 	
 	instruction_edit_stuff_changed = false;
 	instruction_edit_annotation_changed = false;
-	$('#instruction_edit_name input').keydown(function(){
+	$('#instruction_edit_name input').keyup(function(){
 		instruction_edit_stuff_changed = true;
 	});
 	$('a').click(function(e){
@@ -498,7 +632,7 @@ function instruction_edit_buildEditor(){
 			e.preventDefault();
 			instruction_edit_save();
 		}else{
-			if(instruction_edit_stuff_changed || $('#instructions_edit_bbceditor').val()!=instruction_edit_beginningText){
+			if(instruction_edit_annotation_changed || instruction_edit_stuff_changed || $('#instructions_edit_bbceditor').val()!=instruction_edit_beginningText){
 				if(confirm('Save unsaved changes first?')){
 					instruction_edit_save($(this).attr('href'));
 					e.preventDefault();
@@ -609,134 +743,7 @@ function instruction_edit_buildEditor(){
 	
 	$('.instructions_ible_import').click(function(e){
 		e.preventDefault();
-		var replace = confirm("Replace this instruction with 'ible? Cancle will append it to the end of the instruction."),
-			ibleid = prompt("'ible URL");
-		if(ibleid===null){
-			return;
-		}
-		ibleid = ibleid.replace(/^(http:\/\/www\.instructables\.com\/id\/)([^\/?;#]+)(.*)/,'$2');
-		if(ibleid.indexOf('/')!==-1){
-			alert('Invalid URL');
-			return;
-		}
-		$.getJSON(smf_scripturl+'?action=instructions;getinstructable='+encodeURIComponent(ibleid)).done(function(ible){
-			if(ible.success === false){
-				alert('Instructable not found!');
-				return;
-			}
-			if(ible.type != 'Step by Step'){
-				alert('You can only import step by step instructables!');
-				return;
-			}
-			if(ible.author.url.indexOf(smf_scripturl.split('/index.php')[0])!==0){
-				alert('Please set your homepage URL on instructables temporarily to your forum profile to prove that you own this instruction!');
-				return;
-			}
-			if(!confirm('Continue with import?\nInstructable to import: '+ible.title+'\nImported instructabl will '+(replace?'replace':'be added to')+' the current instruction\nThis can take some time, just leave the page open!')){
-				return;
-			}
-			instruction_edit_save(false,function(){
-				var addInstructions = function(){
-					var totalSteps = ible.steps.length,
-						instructionStepIds = [],
-						addStep = function(i){
-							$.getJSON(smf_scripturl+'?action=instructions;addstep='+instruction_edit_id).done(function(data){
-								if(!data.success){
-									alert("ERROR: Couldn't add a step"+(data.msg?': '+data.msg:'!'));
-									alert('Instructable import failed');
-								}else{
-									var bbcode = $('#instructions_edit_bbceditor').sceditor('instance').toBBCode(ible.steps[i].body),
-										title = ible.steps[i].title;
-									instructionStepIds.push({
-										id:data.stepid,
-										done:false,
-										images:$.map(ible.steps[i].files,function(f){
-											if(f.image){
-												return {
-													url:f.downloadUrl,
-													done:false,
-													annotations:$.map(f.imageNotes,function(a){
-														return {
-															w:a.width,
-															h:a.height,
-															y:a.top,
-															x:a.left,
-															body:a.text
-														}
-													})
-												};
-											}
-										})
-									});
-									$.post(smf_scripturl+'?action=instructions;save='+instruction_edit_id+';stepid='+data.stepid,{
-										body:bbcode,
-										title:title
-									}).done(function(data2){
-										if(!data.success){
-											alert("ERROR: Couldn't save a step"+(data.msg?': '+data.msg:'!'));
-										}
-										i++;
-										if(i < totalSteps){
-											addStep(i);
-										}else{
-											var callback = function(){
-												// here we store in the DB the stuff needed for the import and then redirect to the same page again where the import will begin!
-												$.post(smf_scripturl+'?action=instructions;iblesimport='+instruction_edit_id,{
-													data:JSON.stringify({
-														title:ible.title,
-														steps:instructionStepIds
-													})
-												}).done(function(data){
-													if(!data.success){
-														alert("ERROR: Couldn't initialize image import"+(data.msg?': '+data.msg:'!'));
-													}
-													window.location.href = smf_scripturl+'?action=instructions;edit='+instruction_edit_id; // we are now in image import mode!
-												});
-											};
-											if(replace){
-												// now we can delete the last unneeded step
-												$.getJSON(smf_scripturl+'?action=instructions;deletestep='+instruction_edit_id+';stepid='+instruction_edit_stepid).done(function(data){
-													if(!data.success){
-														alert("ERROR: Couldn't delete a step"+(data.msg?': '+data.msg:'!'));
-													}
-													callback();
-												});
-											}else{
-												callback();
-											}
-										}
-									});
-								}
-							});
-						};
-					addStep(0);
-				};
-				if(replace){
-					// delete all the steps except the one which is currently been edited as we need a step in an instruction
-					var todo_steps = $('ul.instruction_stepcontainer.invisibleList > li').length - 1; // -1 as we need to save one step
-					if(todo_steps>0){
-						$('ul.instruction_stepcontainer.invisibleList > li').map(function(i){
-							var id = parseInt(this.dataset.id,10)
-							if(id!=-1 && id!=instruction_edit_stepid){
-								$.getJSON(smf_scripturl+'?action=instructions;deletestep='+instruction_edit_id+';stepid='+id).done(function(data){
-									if(!data.success){
-										alert("ERROR: Couldn't delete a step"+(data.msg?': '+data.msg:'!'));
-									}
-									todo_steps--;
-									if(todo_steps==0){
-										addInstructions();
-									}
-								});
-							};
-						});
-					}else{
-						addInstructions();
-					}
-				}else{
-					addInstructions();
-				}
-			});
-		});
+		instruction_edit_initImport();
 	});
 }
 
@@ -876,7 +883,7 @@ function instruction_edit_buildAnnotation(x,y,w,h,body){
 		}),
 		lastResizeWidth = $annotationBox.width(),
 		$annotationText = $('<div>').addClass('annotation_text').append(
-			$('<textarea>').text(body).keydown(function(e){
+			$('<textarea>').text(body).keyup(function(e){
 				$annotation.data('body',this.value);
 				instruction_edit_annotation_changed = true;
 			}),'&nbsp;',
@@ -1034,7 +1041,7 @@ function instruction_edit_save(redirect,innerCallback){
 	var images = $('#instructions_edit_files > ul > li').map(function(){
 		return $(this).data('id');
 	}).get();
-	$.post(smf_scripturl+'?action=instructions;save='+instruction_edit_id+';stepid='+instruction_edit_stepid,{
+	$.post(instruction_urls.save,{
 		body:$('#instructions_edit_bbceditor').val(),
 		title:$('#instruction_edit_name input').val(),
 		images:JSON.stringify(images)
@@ -1061,8 +1068,8 @@ function instruction_edit_save(redirect,innerCallback){
 			}else{
 				callback();
 			}
-			if(redirect !== false && ((data.instruction_id!==undefined && instruction_edit_id!=data.instruction_id) || (data.step_id!==undefined && instruction_edit_stepid!=data.step_id))){
-				window.location.href = smf_scripturl+'?action=instructions;edit='+data.instruction_id+';step=0'; // reload as we created a new instruction
+			if(redirect !== false && (data.new_instruction)){
+				window.location.href = smf_scripturl+'?action=instructions;sa=edit;id='+data.instruction_id+';step=0'; // reload as we created a new instruction
 			}
 		}else{
 			alert("ERROR: Couldn't save instruction"+(data.msg?': '+data.msg:'!'));

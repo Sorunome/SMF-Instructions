@@ -138,6 +138,21 @@ function template_edit(){
 	if(!$instr->published){
 		echo '<div class="information"><span class="error">',$txt['inst_unpublished'],'</span></div>';
 	}
+	
+	// we generate the quicknav before the admin tools so that we know the current step ID
+	$curstep = 0;
+	$stepnav = '<ul class="windowbg instruction_stepcontainer invisibleList">';
+	foreach($instr->steps as $i => $step){
+		$stepnav .= '<li data-id="'.$step['id'].'"><a href="'.htmlspecialchars($step['url_edit']).'" class="instruction_step instruction_imagehover'.($step['full_parse']?' current':'').'">
+			<div class="instruction_step_img" style="background-image:url(&quot;'.htmlentities($step['main_image']['urls']['square']).'&quot;);"></div>
+			<div class="txt">'.($i == 0?$txt['inst_intro']:$txt['inst_step'].' '.$i).'</div>
+		</a></li>';
+		if($step['full_parse']){
+			$curstep = $i;
+		}
+	}
+	$stepnav .= '</ul>';
+	
 	echo '<div id="instructions_publish" class="instructions_overlay">
 		<div>
 			<button class="button_submit" id="instructions_close_publish">',$txt['inst_close'],'</button>
@@ -169,15 +184,14 @@ function template_edit(){
 			'<li><a class="instructions_publish_open"><span>'.$txt['inst_edit_publish'].'</span></a></li>'
 		).'
 		<li><a class="instructions_new_version"><span>'.$txt['inst_edit_newversion'].'</span></a></li>
-		<li><a class="instructions_ible_import instructions_nosaveask"><span>'.$txt['inst_edit_iblesimport'].'</span>
-		<li><a href="'.$instr->url.'"><span>'.$txt['inst_edit_fullpreview'].'</span></a></li>
+		<li><a class="instructions_ible_import instructions_nosaveask"><span>'.$txt['inst_edit_iblesimport'].'</span></a></li>
+		<li><a href="'.htmlspecialchars($instr->steps[$curstep]['url']).'"><span>'.$txt['inst_edit_fullpreview'].'</span></a></li>
 	</ul></div>';
 	
 	echo $actionButtons.'<div id="instructions_edit_top"></div>';
-	echoStepsNav($inst);
-	echo 'Drag&amp;drop to change step order!<br>
-	<br><span id="instruction_edit_name">Step Title: <input type="text" value="'.htmlentities($inst['name']).'"></span><br><br>
-	<textarea cols="80" id="instructions_edit_bbceditor" rows="10">'.htmlentities($inst['body']).'</textarea>
+	echo $stepnav,'Drag&amp;drop to change step order!<br>
+	<br><span id="instruction_edit_name">Step Title: <input type="text" value="',htmlentities($instr->steps[$curstep]['title']),'"></span><br><br>
+	<textarea cols="80" id="instructions_edit_bbceditor" rows="10">',htmlentities($instr->steps[$curstep]['body']),'</textarea>
 	<div id="instructions_edit_fileannotation_box" class="description">
 		<span class="buttonlist floatleft">
 			<ul>
@@ -218,15 +232,17 @@ function template_edit(){
 			<div id="instructions_edit_imagelibrary"></div>
 		</div>
 	</div>
-	'.$actionButtons;
-	
+	',$actionButtons;
 	
 	echo '<script type="text/javascript">
 	$(document).ready(function(){
-		instruction_edit_beginningText = '.json_encode($inst['body']).';
-		instruction_edit_images = '.json_encode($inst['images']).';
-		instruction_edit_stepid = '.$inst['stepid'].';
+		instruction_edit_beginningText = '.json_encode($instr->exists?$instr->steps[$curstep]['body']:'').';
+		instruction_edit_images = '.json_encode($instr->exists?$instr->steps[$curstep]['images']:array()).';
 		instruction_edit_sceditorurl = '.json_encode($modSettings['instructions_sceditor_url']).';
+		instruction_urls = '.json_encode(array(
+			'save' => $instr->getUrl('save',array('stepid')),
+			'deletestep' => $instr->getUrl('deletestep',array('stepid'))
+		)).';
 		instruction_edit_buildEditor();
 	});
 	</script>';

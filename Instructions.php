@@ -4,13 +4,17 @@ if (!defined('SMF'))
 
 function InstructionsMain(){
 	global $context, $modSettings, $scripturl, $txt, $settings;
-	global $user_info, $smcFunc, $board, $sourcedir, $board_info;
+	global $user_info, $smcFunc, $board, $sourcedir, $board_info,$instr;
 	loadLanguage('Instructions');
 	loadTemplate('Instructions');
 	$instr = new Instruction($_REQUEST['id']?$_REQUEST['id']:-1,!isset($_REQUEST['original']));
 	$sub_actions = array(
 		'view' => 'InstructionsView',
-		'edit' => 'InstructionsEdit'
+		'edit' => 'InstructionsEdit',
+		'save' => 'InstructionsSaveStep',
+		'delete' => 'InstructionsDelete',
+		'addstep' => 'InstructionsAddStep',
+		'deletestep' => 'InstructionsDeleteStep',
 	);
 	if(isset($_REQUEST['sa']) && isset($sub_actions[$_REQUEST['sa']])){
 		$sub_actions[$_REQUEST['sa']]();
@@ -127,45 +131,43 @@ function InstructionsMain(){
 	InstructionsDisplayCat();
 }
 
-
-
 class Instruction{
-	private $exists = false;
-	private $id = -1;
-	private $dispId = '-1';
+	public $exists = false;
+	protected $id = -1;
+	protected $dispId = '-1';
 	public $steps = array();
-	private $numSteps = 0;
-	private $owner = -1;
+	protected $numSteps = 0;
+	protected $owner = -1;
 	public $name = '';
 	public $name_parsed = '';
-	private $category = -1;
+	protected $category = -1;
 	public $upvotes = 0;
 	public $downvotes = 0;
-	private $topic_id = -1;
+	protected $topic_id = -1;
 	public $publish_date = 0;
-	private $new_instruction = -1;
+	protected $new_instruction = -1;
 	public $origUrl = '';
 	public $newUrl = '';
 	public $published = false;
-	private $status = -1;
+	protected $status = 0;
 	public $url = '';
 	public $url_edit = '';
-	private $imageCache = array();
-	private $imageIdCache = array();
-	private $imageCacheUpdater = array();
-	private $imageCacheMap = array();
-	private $html_headers = '';
-	private $import_data = '';
-	private $last_step_id = -1;
-	private $last_step = 0;
-	private function makeSqlArray($a){
+	protected $imageCache = array();
+	protected $imageIdCache = array();
+	protected $imageCacheUpdater = array();
+	protected $imageCacheMap = array();
+	protected $html_headers = '';
+	protected $import_data = '';
+	protected $last_step_id = -1;
+	protected $last_step = 0;
+	protected function makeSqlArray($a){
 		$s = '';
 		foreach($a as $i){
 			$s .= '['.$i.']';
 		}
 		return $s;
 	}
-	private function getSqlArray($s){
+	protected function getSqlArray($s){
 		$a = array();
 		foreach(explode('[',$s) as $i){
 			if($i!=']' && $i!=''){
@@ -174,8 +176,8 @@ class Instruction{
 		}
 		return $a;
 	}
-	private $sql_image_fetch_vars = 'id,annotations,extension,resizeTypes,name';
-	private function getImageObject($res){
+	protected $sql_image_fetch_vars = 'id,annotations,extension,resizeTypes,name';
+	protected function getImageObject($res){
 		global $modSettings;
 		
 		// get image URL sizes
@@ -217,7 +219,7 @@ class Instruction{
 			'name' => $res['name']
 		);
 	}
-	private function getImages($ids){
+	protected function getImages($ids){
 		global $smcFunc;
 		if(sizeof($ids) == 0 || !$ids){
 			return array();
@@ -231,7 +233,7 @@ class Instruction{
 		$smcFunc['db_free_result']($request);
 		return $a;
 	}
-	private function loadImagesInCache(){
+	protected function loadImagesInCache(){
 		$ids = array();
 		
 		// let's make sure that we haven't loaded the image already
@@ -255,7 +257,7 @@ class Instruction{
 			$u();
 		}
 	}
-	private function getImagesFromCache($ids){
+	protected function getImagesFromCache($ids){
 		$a = array();
 		foreach($ids as $i){
 			if(isset($this->imageCacheMap[$i])){
@@ -264,7 +266,7 @@ class Instruction{
 		}
 		return $a;
 	}
-	private function fullParseStep($i){
+	protected function fullParseStep($i){
 		global $modSettings,$sourcedir,$boardurl,$context,$scripturl;
 		if(empty($this->steps[$i])){
 			return false;
@@ -275,7 +277,6 @@ class Instruction{
 		}
 		$step['body_parsed'] = parse_bbc(htmlentities($step['body']));
 		
-		$step['url_edit'] = $this->getUrl('edit',array('step' => $i));
 		
 		$step['full_parse'] = true;
 		
@@ -312,11 +313,12 @@ class Instruction{
 				'main_image_id' => $row['main_image'],
 				'full_parse' => false,
 				'url' => $this->getUrl('view',array(
-					($i!=0 && !isset($_REQUEST['allsteps'])?'step':'') => $i,
-					(!empty($title)?'stepname':'') => $title,
-					($this->new_instruction != -1?'original':''),
-					(isset($_REQUEST['allsteps'])?'allsteps':'')
-				),isset($_REQUEST['allsteps'])?'step'.$i:'')
+						($i!=0 && !isset($_REQUEST['allsteps'])?'step':'') => $i,
+						(!empty($title)?'stepname':'') => $title,
+						($this->new_instruction != -1?'original':''),
+						(isset($_REQUEST['allsteps'])?'allsteps':'')
+					),isset($_REQUEST['allsteps'])?'step'.$i:''),
+				'url_edit' => $this->getUrl('edit',array('step' => $i))
 			);
 			
 			$this->imageIdCache = array_merge($this->imageIdCache,$this->getSqlArray($row['images']),array($row['main_image']));
@@ -330,6 +332,7 @@ class Instruction{
 		return $this;
 	}
 	public function getUrl($sa,$params = array(),$hash = ''){
+		global $scripturl;
 		if($hash != ''){
 			$hash = '#'.$hash;
 		}
@@ -444,11 +447,29 @@ class Instruction{
 	}
 	public function canEdit(){
 		global $user_info;
-		return $this->canView() && (allowedTo('inst_can_edit_any') || (($this->id==-1||$user_info['id'] == $this->owner) && allowedTo('inst_can_edit_own')));
+		return ($this->canView() || $this->id==-1) && (allowedTo('inst_can_edit_any') || (($this->id==-1||$user_info['id'] == $this->owner) && allowedTo('inst_can_edit_own')));
 	}
 	public function canDelete(){
 		global $user_info;
 		return $this->canEdit() && (allowedTo('inst_can_delete_any') || ($user_info['id'] == $this->owner && allowedTo('inst_can_delete_any')));
+	}
+	public function mustView(){
+		if(!$this->canView()){
+			fatal_lang_error('instruction_cant_view',false);
+		}
+		return $this;
+	}
+	public function mustEdit(){
+		if(!$this->canEdit()){
+			fatal_lang_error('instruction_cant_edit',false);
+		}
+		return $this;
+	}
+	public function mustDelete(){
+		if(!$this->canDelete()){
+			fatal_lang_error('instruction_cant_delete',false);
+		}
+		return $this;
 	}
 	public function view(){
 		global $context,$settings;
@@ -458,27 +479,24 @@ class Instruction{
 		if($this->id == -1){
 			fatal_lang_error('instruction_not_found',false);
 		}
-		if(!$this->canView()){
-			fatal_lang_error('instruction_cant_view',false);
-		}
-		return $this->get();
+		return $this->mustView()->get();
 	}
 	public function edit(){
 		global $context,$settings,$smcFunc,$modSettings,$txt;
-		if(!$this->canEdit()){
-			fatal_lang_error('instruction_cant_edit',false);
-		}
+		$this->mustEdit();
+		
 		$context['page_title'] = $txt['inst_edit_title'].$this->name;
 		
 		$context['html_headers'] .= $this->html_headers.'<script type="text/javascript">
 			instruction_edit_id = '.$this->id.'
 		</script>';
+		
 		if($this->status == -1){
 			$context['html_headers'] .= '<script type="text/javascript">
 			instruction_import_data = '.json_encode(json_decode($this->import_data /* to make sure that we don't inject js */)).'
 			</script>';
 			$context['sub_template'] = 'import';
-			return;
+			return $this->get();
 		}
 		// fetching smileys from Subs-Editor.php start (modified)
 		$sceditor_smileys = array();
@@ -518,11 +536,200 @@ class Instruction{
 		
 		$context['sub_template'] = 'edit';
 		
-		return $this;
+		return $this->get();
+	}
+	protected $editstep = -1;
+	public function goEdit(){
+		$this->mustEdit();
+		$reflect = new ReflectionClass($this);
+		$props = array();
+		foreach($reflect->getProperties() as $p){
+			$name = $p->name;
+			$props[$name] = $this->$name;
+		}
+		return new EditInstruction($props);
+	}
+	public function editStep($stepid){
+		global $smcFunc;
+		$this->mustEdit();
+		if($this->id != -1){
+			$request = $smcFunc['db_query']('','SELECT id FROM {db_prefix}instructions_steps WHERE id = {int:stepid} AND instruction_id = {int:instruction_id} LIMIT 1',array('stepid' => $stepid,'instruction_id' => $this->id));
+			if($smcFunc['db_num_rows']($request) == 0){
+				fatal_lang_error('instruction_cant_edit',false);
+			}
+			$editstep = $smcFunc['db_fetch_assoc']($request);
+			$smcFunc['db_free_result']($request);
+			$this->editstep = (int)$editstep['id'];
+		}else{
+			$this->editstep = -1;
+		}
+		
+		return $this->goEdit();
 	}
 	public function get(){
 		$this->loadImagesInCache();
 		return $this;
+	}
+}
+class EditInstruction extends Instruction{
+	public function __construct($props){
+		header('Content-Type:text/plain');
+		foreach($props as $var => $val){
+			$this->$var = $val;
+		}
+	}
+	protected function updateFirstStep(){
+		global $smcFunc;
+		// unfortunately SMF doesn't allow multiple selects else i'd have used a joined update
+		$request = $smcFunc['db_query']('','SELECT title,main_image FROM {db_prefix}instructions_steps WHERE instruction_id = {int:id} ORDER BY sorder ASC LIMIT 1',array('id' => $this->id));
+		if($res = $smcFunc['db_fetch_assoc']($request)){
+			$smcFunc['db_query']('','UPDATE {db_prefix}instructions_instructions
+				SET main_image = {string:main_image},name = {string:title}
+				WHERE id={int:id}',array('id' => $this->id,'main_image' => $res['main_image'],'title' => $res['title']));
+		}
+		return $this;
+	}
+	public function addStep(){
+		global $smcFunc;
+		if($this->id == -1){ // we actually need this to be an instruction!
+			return $this;
+		}
+		
+		$newSOrder = 0;
+		$request = $smcFunc['db_query']('','SELECT MAX(sorder) AS sorder FROM {db_prefix}instructions_steps WHERE instruction_id = {int:id}',array('id' => $this->id));
+		if($res = $smcFunc['db_fetch_assoc']($request)){
+			$newSOrder = (int)$res['sorder']+1;
+		}
+		$smcFunc['db_insert']('insert','{db_prefix}instructions_steps',
+			array(
+				'sorder' => 'int', 'instruction_id' => 'int'
+			),
+			array(
+				$newSOrder, $this->id
+			),
+			array('sorder','instruction_id')
+		);
+		$this->editstep = (int)$smcFunc['db_insert_id']('{db_prefix}instructions_steps','id');
+		
+		return $this;
+	}
+	protected $createdNewInstruction = false;
+	public function newInstruction(){
+		global $smcFunc,$user_info;
+		$smcFunc['db_insert']('insert','{db_prefix}instructions_instructions',
+			array(
+				'owner' => 'int', 'name' => 'string'
+			),
+			array(
+				$user_info['id'], (isset($_REQUEST['title'])?$_REQUEST['title']:'')
+			),
+			array('owner','name')
+		);
+		$this->id = (int)$smcFunc['db_insert_id']('{db_prefix}instructions_instructions','id');
+		$this->createdNewInstruction = true;
+		$this->exists = true;
+		return $this;
+	}
+	public function deleteInstruction(){
+		global $smcFunc;
+		if(!$this->exists){
+			return $this;
+		}
+		// delete steps
+		$smcFunc['db_query']('','DELETE FROM {db_prefix}instructions_steps WHERE instruction_id = {int:id}',array('id' => $this->id));
+		
+		// delete instruction
+		$smcFunc['db_query']('','DELETE FROM {db_prefix}instructions_instructions WHERE id = {int:id}',array('id' => $this->id));
+		
+		$this->exists = false;
+		$this->id = -1;
+		return $this->updateFirstStep();
+	}
+	public function deleteStep(){
+		global $smcFunc;
+		if(!$this->exists || $this->editstep == -1){
+			return $this;
+		}
+		$smcFunc['db_query']('','DELETE FROM {db_prefix}instructions_steps WHERE id = {int:stepid}',array('stepid' => $this->editstep));
+		$this->stepid = -1;
+		return $this;
+	}
+	public function savePost(){
+		global $smcFunc;
+		if($this->id == -1){ // create new instruction!
+			// we need to create a new instruction!
+			$this->newInstruction()->addStep();
+			
+			if($this->editstep == -1){
+				// don't forget to delete the dummy instruction!
+				$this->deleteInstruction();
+			}
+			// now just process with the normal updating of the step
+		}
+		if($this->editstep == -1 || $this->id == -1){ // by now it should be a valid step
+			return $this;
+		}
+		// time to save this thing!
+		$updateArray = array();
+		$updateParams = array();
+		if(isset($_REQUEST['body'])){
+			$updateArray[] = 'body = {string:body}';
+			$updateParams['body'] = $_REQUEST['body'];
+		}
+		if(isset($_REQUEST['title'])){
+			$updateArray[] = 'title = {string:title}';
+			$updateParams['title'] = $_REQUEST['title'];
+		}
+		if(isset($_REQUEST['images'])){
+			$json = json_decode($_REQUEST['images'],true);
+			if(is_array($json)){
+				$valid = !empty($json);
+				if($valid){
+					foreach($json as $i){
+						if(!is_int($i)){
+							$valid = false;
+						}
+					}
+				}
+				if($valid){
+					$request2 = $smcFunc['db_query']('','SELECT id FROM {db_prefix}instructions_images WHERE id IN ('.implode(',', array_map('intval', $json)).') AND success=1 AND owner={int:owner}',array('owner' => $this->owner));
+					$valid = $smcFunc['db_num_rows']($request2) == sizeof($json);
+					$smcFunc['db_free_result']($request2);
+				}
+				if($valid){
+					$updateArray[] = 'images = {string:images}';
+					$updateArray[] = 'main_image = {int:main_image}';
+					$updateParams['images'] = InstructionsMakeSQLArray($json);
+					$updateParams['main_image'] = (sizeof($json) > 0?$json[0]:-1);
+				}
+			}
+		}
+		$updateParams['id'] = $this->editstep;
+		if(sizeof($updateArray) > 0){
+			$smcFunc['db_query']('','UPDATE {db_prefix}instructions_steps SET '.implode(',',$updateArray).' WHERE id={int:id}',$updateParams);
+		}
+		
+		return $this->updateFirstStep();
+	}
+	public function data(){
+		global $scripturl;
+		if(isset($_REQUEST['redirect'])){
+			if($this->id == -1){
+				redirectexit($scripturl.'?action=instructions');
+			}
+			$noeditActions = array(
+				'delete'
+			);
+			redirectexit($this->getUrl(!empty($_REQUEST['sa']) && in_array($_REQUEST['sa'],$noeditActions)?'view':'edit'));
+		}
+		header('Content-Type:text/json');
+		echo json_encode(array(
+			'success' => $this->id != -1,
+			'new_instruction' => $this->createdNewInstruction,
+			'instruction_id' => $this->id,
+			'step_id' => $this->editstep
+		));
+		exit;
 	}
 }
 
@@ -536,13 +743,26 @@ function InstructionsEdit(){
 	$instr->loadSteps(!empty($_REQUEST['step'])?(int)$_REQUEST['step']:0)->edit();
 }
 
-function getUrl($s){
-	return str_replace("\x12","'",$s);
+function InstructionsSaveStep(){
+	global $instr;
+	$instr->editStep(!empty($_REQUEST['stepid'])?(int)$_REQUEST['stepid']:-1)->savePost()->data();
 }
 
-function revUrl($s){
-	return str_replace("\x12#039;","\x12",str_replace('"',"\x12",str_replace("\x26","\x12",$s)));
+function InstructionsDelete(){
+	global $instr;
+	$instr->mustDelete()->goEdit()->deleteInstruction()->data();
 }
+
+function InstructionsAddStep(){
+	global $instr;
+	$instr->goEdit()->addStep()->data();
+}
+
+function InstructionsDeleteStep(){
+	global $instr;
+	$instr->editStep(!empty($_REQUEST['stepid'])?(int)$_REQUEST['stepid']:-1)->deleteStep()->data();
+}
+
 
 function InstructionsMakeSQLArray($a){
 	$s = '';
@@ -766,8 +986,8 @@ function InstructionsGetURL($id,$step = 0,$title = '',$ancor = '',$edit = false)
 	}
 	if(!empty($modSettings['pretty_enable_filters'])){
 		include_once($sourcedir.'/Subs-PrettyUrls.php');
-		$title = getUrl(pretty_generate_url($title));
-		return $scripturl."?action=instructions;id=$id;".($step != 0?"step=$step".($title!=''?';stepname='.getUrl(pretty_generate_url($title)):''):'').$ancor;
+		$title = pretty_generate_url($title);
+		return $scripturl."?action=instructions;id=$id;".($step != 0?"step=$step".($title!=''?';stepname='.pretty_generate_url($title):''):'').$ancor;
 	}
 	
 	return $scripturl."?action=instructions;id=$id".($step != 0?";step=$step":'').$ancor;
@@ -963,136 +1183,6 @@ function InstructionsGetStepContext($id,$dispId,$step,$edit = false){
 	$context['instruction']['thisurl_edit'] = InstructionsGetURL($dispId,$step,$stepTitles[$step],'',true);
 }
 
-function InstructionsDisplay($id,$step = 0,$depth = 0,$origDispId = ''){
-	global $context, $modSettings, $scripturl, $txt, $settings;
-	global $user_info, $smcFunc, $board, $user_profile, $memberContext, $board_info, $mbname;
-	
-	$canView = allowedTo('inst_can_view_published');
-	$canEdit = false;
-	$canDelete = false;
-	if($id == ''){
-		$id = -1;
-	}
-	if($canView){ // are we allowed to view the instruction?
-	
-		$step = (int)$step; // just to make sure
-		
-		$instruction_name = '';
-		$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status,category,upvotes,downvotes,topic_id,UNIX_TIMESTAMP(publish_date) AS publish_date,new_instruction FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => revUrl($id)));
-		if($instr = $smcFunc['db_fetch_assoc']($request)){
-			$id = (int)$instr['id'];
-			if($instr['url']!=''){
-				$dispId = $instr['url'];
-			}else{
-				$dispId = $id;
-			}
-			$instruction_name = parse_bbc(htmlentities($instr['name']));
-		}else{
-			$id = -1;
-			$dispId = -1;
-		}
-		$smcFunc['db_free_result']($request);
-		$published = (int)$instr['status'] > 0;
-		if(!$published){ // this instruction isn't published yet!
-			$canView = false;
-			if(allowedTo('inst_can_view_unpublished_any') || ($user_info['id'] == $instr['owner'] && allowedTo('inst_can_view_unpublished_own'))){
-				$canView = true;
-			}
-		}
-		$canEdit = allowedTo('inst_can_edit_any') || ($user_info['id'] == $instr['owner'] && allowedTo('inst_can_edit_own'));
-		$canDelete = allowedTo('inst_can_delete_any') || ($user_info['id'] == $instr['owner'] && allowedTo('inst_can_delete_own'));
-	}
-	if($id == -1){
-		if($depth>0){
-			return false;
-		}
-		fatal_lang_error('instruction_not_found',false);
-	}
-	if(!$canView){
-		if($depth>0){
-			return false;
-		}
-		fatal_lang_error('instruction_cant_view',false);
-	}
-	if($instr['new_instruction'] != -1 && $depth <= 10 /* recursion protetion */ && !isset($_REQUEST['original'])){
-		if(InstructionsDisplay($instr['new_instruction'],$step,$depth+1,($origDispId==''?$dispId:$origDispId))){
-			return true;
-		}
-		$instr['new_instruction'] = -1; // Such a liar, there is no new instruction!
-	}
-	
-	$base_cat = (isset($modSettings['instructions_board'])?(int)$modSettings['instructions_board']:1);
-	$board = (int)$instr['category'];
-	if($board != -1){
-		loadBoard();
-	}
-	if($board == -1 || !$board_info || ($board_info['id'] != $base_cat && empty($board_info['parent_boards'][$base_cat]))){
-		$board = $base_cat;
-		loadBoard();
-	}
-	$path = array();
-	foreach($board_info['parent_boards'] as $key => $board){
-		$path[$key] = $board['name'];
-	}
-	$path = array_reverse($path,true); // true to also preserve the index
-	$path[(int)$board_info['id']] = $board_info['name'];
-	
-	$board = 0;
-	loadBoard(); // make sure no board is loaded
-	
-	
-	
-	loadMemberData((int)$instr['owner']); // load some data about the author
-	loadMemberContext((int)$instr['owner']);
-	
-	
-	if($published && $id != -1 && (empty($_SESSION['instructions_last_id']) || $_SESSION['instructions_last_id'] != $id)){
-		// count the hit!
-		$smcFunc['db_query']('', 'UPDATE {db_prefix}instructions_instructions SET views = views + 1 WHERE id = {int:id}',array('id' => $id));
-		$_SESSION['instructions_last_id'] = $id;
-	}
-	
-	InstructionsGetStepContext($id,$dispId,$step);
-	
-	$context['linktree'] = array(
-		array(
-			'url' => $scripturl,
-			'name' => $mbname
-		)
-	);
-	foreach($path as $path_id => $name){
-		$context['linktree'][] = array(
-			'url' => $scripturl.'?action=instructions'.($path_id!=$base_cat?';cat='.$path_id:''),
-			'name' => $name
-		);
-	}
-	$context['linktree'][] = array(
-		'url' => InstructionsGetURL($dispId,$step,$context['instruction']['name']),
-		'name' => $instruction_name
-	);
-	
-	
-	$context['instruction']['depth'] = $depth;
-	$context['instruction']['origurl'] = InstructionsGetURL($origDispId).';original';
-	$context['instruction']['url'] = InstructionsGetURL($dispId);
-	$context['instruction']['newerVersion'] = $instr['new_instruction'] != -1;
-	$context['instruction']['owner'] = (int)$instr['owner'];
-	$context['instruction']['canedit'] = $canEdit;
-	$context['instruction']['candelete'] = $canDelete;
-	$context['instruction']['published'] = $published;
-	$context['instruction']['instruction_name'] = $instruction_name;
-	$context['instruction']['upvotes'] = (int)$instr['upvotes'];
-	$context['instruction']['downvotes'] = (int)$instr['downvotes'];
-	$context['instruction']['topic_id'] = $instr['topic_id'];
-	$context['instruction']['instruction_id'] = $dispId;
-	$context['instruction']['publish_date'] = $instr['publish_date'];
-	
-	loadTemplate('Instructions');
-	$context['page_title'] = $context['instruction']['name'];
-	$context['sub_template'] = 'display';
-	return true;
-}
-
 function InstructionsUpdateFirstStep($id){
 	global $context, $modSettings, $scripturl, $txt, $settings;
 	global $user_info, $smcFunc, $board, $user_profile, $memberContext;
@@ -1118,7 +1208,7 @@ function InstructionsEdit_old($id,$step = 0){
 	
 	$category = -1;
 	if($id != -1 && $id != ''){
-		$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status,category,import_data FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => revUrl($id)));
+		$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status,category,import_data FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => $id));
 		if($res = $smcFunc['db_fetch_assoc']($request)){
 			$id = (int)$res['id'];
 		}else{
@@ -1136,7 +1226,7 @@ function InstructionsEdit_old($id,$step = 0){
 		$import_data = $res['import_data'];
 		$instruction_name = parse_bbc(htmlentities($res['name']));
 	}else{
-		$id = (int)$id;
+		$id = -1;
 		$dispId = $id;
 		$step = 0;
 		$published = false;
@@ -1150,7 +1240,7 @@ function InstructionsEdit_old($id,$step = 0){
 		fatal_lang_error('instruction_cant_edit',false);
 	}
 	
-	$canDelete = allowedTo('inst_can_delete_any') || ($user_info['id'] == $res['owner'] && allowedTo('inst_can_delete_own'));
+	$canDelete = allowedTo('inst_can_delete_any') || (($id == -1 || $user_info['id'] == $res['owner']) && allowedTo('inst_can_delete_own'));
 	
 	// fetching smileys from Subs-Editor.php start (modified)
 	$sceditor_smileys = array();
@@ -1229,7 +1319,7 @@ function InstructionsSave($id,$stepid = 0){
 	header('Content-Type: application/json');
 	
 	if($id!=-1){
-		$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => revUrl($id)));
+		$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => $id));
 		if($res = $smcFunc['db_fetch_assoc']($request)){
 			$id = (int)$res['id'];
 		}else{
@@ -1342,7 +1432,7 @@ function InstructionsNewVersion($id){
 		die('{"success":false,"msg":"missing required field"}');
 	}
 	
-	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => revUrl($id)));
+	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => $id));
 	if($res = $smcFunc['db_fetch_assoc']($request)){
 		$id = (int)$res['id'];
 	}else{
@@ -1386,7 +1476,7 @@ function InstructionsSaveStepOrder($id){
 	
 	header('Content-Type: text/json');
 	
-	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => revUrl($id)));
+	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => $id));
 	if($res = $smcFunc['db_fetch_assoc']($request)){
 		$id = (int)$res['id'];
 	}else{
@@ -1429,12 +1519,12 @@ function InstructionsSaveStepOrder($id){
 	exit;
 }
 
-function InstructionsAddStep($id,$return = false){
+function InstructionsAddStep_old($id,$return = false){
 	global $context, $modSettings, $scripturl, $txt, $settings;
 	global $user_info, $smcFunc, $board;
 	
 	
-	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => revUrl($id)));
+	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => $id));
 	if($res = $smcFunc['db_fetch_assoc']($request)){
 		$id = (int)$res['id'];
 	}else{
@@ -1495,7 +1585,7 @@ function InstructionsAddStep($id,$return = false){
 	exit;
 }
 
-function InstructionsDeleteStep($id,$stepid = -1){
+function InstructionsDeleteStep_old($id,$stepid = -1){
 	global $context, $modSettings, $scripturl, $txt, $settings;
 	global $user_info, $smcFunc, $board;
 	
@@ -1504,7 +1594,7 @@ function InstructionsDeleteStep($id,$stepid = -1){
 		die('{"success":false,"msg":"invalid step"}');
 	}
 	
-	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => revUrl($id)));
+	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => $id));
 	if($res = $smcFunc['db_fetch_assoc']($request)){
 		$id = (int)$res['id'];
 	}else{
@@ -1567,12 +1657,12 @@ function InstructionsDeleteStep($id,$stepid = -1){
 	exit;
 }
 
-function InstructionsDelete($id){
+function InstructionsDelete_old($id){
 	global $context, $modSettings, $scripturl, $txt, $settings;
 	global $user_info, $smcFunc, $board;
 	
 	
-	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => revUrl($id)));
+	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => $id));
 	if($res = $smcFunc['db_fetch_assoc']($request)){
 		$id = (int)$res['id'];
 	}else{
@@ -1939,7 +2029,7 @@ function InstructionsUnpublish($id){
 	global $user_info, $smcFunc, $board;
 	
 	
-	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status, publish_date FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => revUrl($id)));
+	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status, publish_date FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => $id));
 	if($res = $smcFunc['db_fetch_assoc']($request)){
 		$id = (int)$res['id'];
 	}else{
@@ -1987,7 +2077,7 @@ function InstructionsPublish($id){
 	
 	header('Content-Type: text/json');
 	
-	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status,main_image,topic_id,UNIX_TIMESTAMP(publish_date) AS publish_date FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => revUrl($id)));
+	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status,main_image,topic_id,UNIX_TIMESTAMP(publish_date) AS publish_date FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => $id));
 	if($instr = $smcFunc['db_fetch_assoc']($request)){
 		$id = (int)$instr['id'];
 	}else{
@@ -2127,7 +2217,7 @@ function InstructionsKarma($id,$direction){
 		
 		$instruction_name = '';
 		
-		$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status,category,upvotes,downvotes,topic_id FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => revUrl($id)));
+		$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status,category,upvotes,downvotes,topic_id FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => $id));
 		if($instr = $smcFunc['db_fetch_assoc']($request)){
 			$id = (int)$instr['id'];
 			if($instr['url']!=''){
@@ -2214,7 +2304,7 @@ function InstructionsIblesImport($id){
 	
 	header('Content-Type: text/json');
 	
-	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status, publish_date FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => revUrl($id)));
+	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status, publish_date FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => $id));
 	if($res = $smcFunc['db_fetch_assoc']($request)){
 		$id = (int)$res['id'];
 	}else{
@@ -2251,7 +2341,7 @@ function InstructionsGetImageIdsForStep($id){
 	
 	header('Content-Type: text/json');
 	
-	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status, publish_date FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => revUrl($id)));
+	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status, publish_date FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => $id));
 	if($res = $smcFunc['db_fetch_assoc']($request)){
 		$id = (int)$res['id'];
 	}else{
