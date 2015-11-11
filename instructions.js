@@ -710,7 +710,7 @@ function instruction_edit_buildEditor(){
 		if($('#instructions_publish select').hasClass('cant')){
 			alert('Please enter a valid category!');
 		}else{
-			$.post(smf_scripturl+'?action=instructions;publish='+instruction_edit_id,{
+			$.post(instruction_urls.publish,{
 				category:$('#instructions_publish select').val(),
 				post:$('#instructions_publish textarea').val()
 			}).done(function(data){
@@ -729,7 +729,7 @@ function instruction_edit_buildEditor(){
 		if(url !== null){
 			url = url.replace(/^(.*\/instructions\/)([^\/?;#]+)(.*)/,'$2');
 			url = url.replace(/^(.*id=)([^\/&;#]+)(.*)/,'$2');
-			$.post(smf_scripturl+'?action=instructions;newversion='+instruction_edit_id,{
+			$.post(instruction_urls.newversion,{
 				newid:url
 			}).done(function(data){
 				if(data.success){
@@ -1069,7 +1069,7 @@ function instruction_edit_save(redirect,innerCallback){
 				callback();
 			}
 			if(redirect !== false && (data.new_instruction)){
-				window.location.href = smf_scripturl+'?action=instructions;sa=edit;id='+data.instruction_id+';step=0'; // reload as we created a new instruction
+				window.location.href = data.url; // reload as we created a new instruction
 			}
 		}else{
 			alert("ERROR: Couldn't save instruction"+(data.msg?': '+data.msg:'!'));

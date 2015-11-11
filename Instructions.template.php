@@ -156,20 +156,15 @@ function template_edit(){
 	echo '<div id="instructions_publish" class="instructions_overlay">
 		<div>
 			<button class="button_submit" id="instructions_close_publish">',$txt['inst_close'],'</button>
-			<h1>Publish your instruction <em>'.$inst['instruction_name'].'</em></h1>
-			Category:<select>';
-	foreach(getCatList($inst['publishcats']) as $c){
+			<h1>',sprintf($txt['inst_publish'],$instr->name_parsed),'</h1>
+			',$txt['inst_publish_cat'],'<select>';
+	foreach(getCatList(InstructionsGetPublishCats()) as $c){
 		echo '<option value="'.$c['id'].'" data-can="'.($c['canpublish']?1:0).'">'.$c['name'].'</option>';
 	}
 	echo '	</select><br>
-			Forum post:<br>
-			<textarea>[size=18pt][b]{NAME}[/b][/size]
-[size=16pt][url={URL}]--> View Instruction[/url][/size]
-[img]{IMG}[/img]
-
-
-{INTRO}</textarea><br>
-			<button class="button_submit" id="instructions_publish_real">Publish my instruction!</button>
+			',$txt['inst_publish_post'],'<br>
+			<textarea>',htmlspecialchars($modSettings['instructions_default_topic']),'</textarea><br>
+			<button class="button_submit" id="instructions_publish_real">',$txt['inst_publish_go'],'</button>
 		</div>
 	</div>';
 	
@@ -241,7 +236,9 @@ function template_edit(){
 		instruction_edit_sceditorurl = '.json_encode($modSettings['instructions_sceditor_url']).';
 		instruction_urls = '.json_encode(array(
 			'save' => $instr->getUrl('save',array('stepid')),
-			'deletestep' => $instr->getUrl('deletestep',array('stepid'))
+			'deletestep' => $instr->getUrl('deletestep',array('stepid')),
+			'publish' => $instr->getUrl('publish'),
+			'newversion' => $instr->getUrl('newversion'),
 		)).';
 		instruction_edit_buildEditor();
 	});

@@ -1,4 +1,12 @@
 <?php
+$txt['instructions'] = 'Instructions';
+$txt['instructions_new'] = 'New Instruction';
+$txt['instruction_cant_view'] = 'Cannot view instruction, insufficient permissions!';
+$txt['instruction_cant_edit'] = 'Cannot edit instruction, insufficient permissions!';
+$txt['instruction_cant_delete'] = 'Cannot delete instruction, insufficient permissions!';
+$txt['instruction_not_found'] = 'Instruction not found!';
+
+
 $txt['permissiongroup_instructions'] = 'Instructions';
 $txt['permissiongroup_simple_instructions'] = 'Instructions';
 $txt['permissionname_inst_can_delete'] = 'Allowed to delete instructions:';
@@ -31,6 +39,16 @@ $txt['inst_edit_publish'] = 'Publish Instruction';
 $txt['inst_edit_newversion'] = 'Set new version';
 $txt['inst_edit_iblesimport'] = 'Instructables import';
 $txt['inst_edit_fullpreview'] = 'Full Preview';
+
+$txt['inst_publish'] = 'Publish your instruction <em>%s</em>';
+$txt['inst_publish_cat'] = 'Category:';
+$txt['inst_publish_post'] = 'Forum post:';
+$txt['inst_publish_go'] = 'Publish my instruction!';
+$txt['inst_publish_main_image'] = 'Instruction doesn\'t have a main image!';
+$txt['inst_publish_no_name'] = 'Instruction doesn\'t have a name!';
+$txt['inst_publish_wrong_cat'] = 'You do not have permission to publish an instruction in this category!';
+
+$txt['inst_newversion_self'] = 'Can\'t set the new version to itself!';
 
 $txt['inst_importing'] = 'Importing instruction...';
 ?>
