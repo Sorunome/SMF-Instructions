@@ -8,6 +8,7 @@
 
 	<install for="2.0 - 2.99.99">
 		<modification>install.xml</modification>
+		<require-file name="Subs-Instructions.php" destination="$sourcedir" />
 		<require-file name="Instructions.php" destination="$sourcedir" />
 		<require-file name="Instructions.template.php" destination="$themedir" />
 		<require-file name="instructions.css" destination="$themedir/css" />
@@ -17,13 +18,17 @@
 		<require-file name="uploadfile.min.css" destination="$themedir/css" />
 		<require-file name="jquery-ui.min.js" destination="$themedir/scripts" />
 		<require-file name="jquery-ui.min.css" destination="$themedir/css" />
+		<require-file name="Instructions.english.php" destination="$languagedir" />
+		<require-file name="Instructions_global.english.php" destination="$languagedir" />
 		<create-dir name="instruction_uploads" destination="$boarddir" />
 		
 		<code>install.php</code>
+		<database>database.php</database>
 	</install>
 
 	<uninstall for="2.0 - 2.99.99">
 		<modification type="file" reverse="true">install.xml</modification>
+		<remove-file name="$sourcedir/Subs-Instructions.php" />
 		<remove-file name="$sourcedir/Instructions.php" />
 		<remove-file name="$themedir/Instructions.template.php" />
 		<remove-file name="$themedir/css/instructions.css" />
@@ -33,5 +38,9 @@
 		<remove-file name="$themedir/css/uploadfile.min.css" />
 		<remove-file name="$themedir/scripts/jquery-ui.min.js" />
 		<remove-file name="$themedir/css/jquery-ui.min.css" />
+		<remove-file name="$languagedir/Instructions.english.php" />
+		<remove-file name="$languagedir/Instructions_global.english.php" />
+		
+		<code>uninstall.php</code>
 	</uninstall>
 </package-info>

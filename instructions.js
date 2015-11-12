@@ -676,7 +676,7 @@ function instruction_edit_buildEditor(){
 				$(this).find('.txt').text((i==0?'intro':'Step '+i));
 				return parseInt(this.dataset.id,10);
 			}).get();
-			$.post(smf_scripturl+'?action=instructions;savesteporder='+instruction_edit_id,{
+			$.post(instruction_urls.savesteporder,{
 				steporder:JSON.stringify(steporder)
 			}).done(function(data){
 				if(!data.success){

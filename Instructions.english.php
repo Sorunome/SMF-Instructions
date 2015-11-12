@@ -1,6 +1,4 @@
 <?php
-$txt['instructions'] = 'Instructions';
-$txt['instructions_new'] = 'New Instruction';
 $txt['instruction_cant_view'] = 'Cannot view instruction, insufficient permissions!';
 $txt['instruction_cant_edit'] = 'Cannot edit instruction, insufficient permissions!';
 $txt['instruction_cant_delete'] = 'Cannot delete instruction, insufficient permissions!';
@@ -30,6 +28,8 @@ $txt['inst_origversion'] = 'This is a newer version of an instruction. To see th
 $txt['inst_newversion'] = 'A newer version of this instruction is available. To see it click <a href="%s">here</a>';
 $txt['inst_adminbutton_delete'] = 'Delete Instruction';
 $txt['inst_adminbutton_edit'] = 'Edit Instruction';
+
+$txt['inst_edit_invalid_data'] = 'Invalid data specified';
 
 $txt['inst_edit_title'] = 'Edit - ';
 $txt['inst_edit_addstep'] = 'Add Step';

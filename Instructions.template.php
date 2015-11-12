@@ -22,8 +22,8 @@ function getInstructionsTable($inst){
 	';
 	foreach($inst['instructions'] as $i){
 		echo '<tr>
-			<td class="'.($i['published']?'windowbg':'approvetbg').'">'.$i['image'].'</td>
-			<td class="'.($i['published']?'windowbg':'approvetbg').'2 instruction_name"><a href="'.htmlentities($i['url']).'" style="font-weight:bold;font-size:2em;">'.$i['name'].'</a></td>
+			<td class="'.($i['published']?'windowbg':'approvetbg').'"><img src="'.htmlspecialchars($i['image']).'" alt="'.htmlspecialchars($i['name']).'" /></td>
+			<td class="'.($i['published']?'windowbg':'approvetbg').'2 instruction_name"><a href="'.htmlentities($i['url']).'" style="font-weight:bold;">'.$i['name'].'</a></td>
 			<td class="'.($i['published']?'windowbg':'approvetbg').'">
 				Rating: +'.$i['upvotes'].' / -'.$i['downvotes'].'<br>Views: '.$i['views'].'
 			</td>
@@ -239,6 +239,7 @@ function template_edit(){
 			'deletestep' => $instr->getUrl('deletestep',array('stepid')),
 			'publish' => $instr->getUrl('publish'),
 			'newversion' => $instr->getUrl('newversion'),
+			'savesteporder' => $instr->getUrl('savesteporder'),
 		)).';
 		instruction_edit_buildEditor();
 	});
