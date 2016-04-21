@@ -153,6 +153,9 @@ function instruction_init_display(curImgStep){
 			}
 		}
 	});
+	$(window).resize(function(){
+		$('#instruction_bigimage > div > img,.instruction_mainimage > div > img').trigger('calcresize');
+	});
 }
 
 function instruction_dispImage(step,id,invocedElem){
@@ -178,10 +181,11 @@ function instruction_dispImage(step,id,invocedElem){
 	$annotations.empty();
 	$mainImg.off('resize').off('load');
 	$mainImg.css('margin-left',0);
+	console.log(instruction_images[step][id]);
 	if(instruction_images[step][id]['annotations']){
 		$mainImg.css('margin-left',0);
-		$(window).off('resize');
-		$(window).resize(function(e){
+		$mainImg.off('calcresize');
+		$mainImg.on('calcresize',function(e){
 			var altAnnotations = ls.get('instruction_annotation_type') == 1;
 			$mainImg.css('margin-left',0);
 			if(big){
@@ -221,7 +225,7 @@ function instruction_dispImage(step,id,invocedElem){
 			}
 		});
 		$mainImg.load(function(){
-			$(window).trigger('resize');
+			$mainImg.trigger('calcresize');
 		});
 	}
 	if(!big && invocedElem!==undefined){

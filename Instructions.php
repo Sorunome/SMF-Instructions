@@ -367,7 +367,7 @@ class Instruction{
 			if($instr['url']!=''){
 				$this->dispId = $instr['url'];
 			}else{
-				$this->dispId = $id;
+				$this->dispId = (string)$this->id;
 			}
 			if($follow && !empty($instr['new_instruction']) && $instr['new_instruction']!=-1 && $depth <= 10){
 				if($this->__construct($instr['new_instruction'],true,$depth+1,$origDispId == ''?$this->dispId:$origDispId)){
@@ -471,6 +471,41 @@ class Instruction{
 		}
 		return $this;
 	}
+	protected function loadLinkTree(){
+		if($this->category == -1){
+			return $this;
+		}
+		global $context, $scripturl, $mbname, $board, $board_info;
+		$board = $this->category;
+		loadBoard();
+		$path = array(
+			-1 => InstructionsGetRootCatName()
+		);
+		foreach($board_info['parent_boards'] as $key => $board){
+			$path[$key] = $board['name'];
+		}
+		$path = array_reverse($path,true);
+		$path[$this->category] = $board_info['name'];
+		$board = 0;
+		loadBoard();
+		$context['linktree'] = array(
+			array(
+				'url' => $scripturl,
+				'name' => $mbname
+			)
+		);
+		foreach($path as $id => $name){
+			$context['linktree'][] = array(
+				'url' => $scripturl.'?action=instructions_cat'.($id!=-1?';id='.$id:''),
+				'name' => $name
+			);
+		}
+		$context['linktree'][] = array(
+			'url' => $this->getUrl(),
+			'name' => $this->name
+		);
+		return $this;
+	}
 	public function view(){
 		global $context,$settings;
 		$context['html_headers'] .= $this->html_headers;
@@ -479,7 +514,7 @@ class Instruction{
 		if($this->id == -1){
 			fatal_lang_error('instruction_not_found',false);
 		}
-		return $this->mustView()->get();
+		return $this->mustView()->loadLinkTree()->get();
 	}
 	public function edit(){
 		global $context,$settings,$smcFunc,$modSettings,$txt;
@@ -662,6 +697,7 @@ class EditInstruction extends Instruction{
 			array('owner','name')
 		);
 		$this->id = (int)$smcFunc['db_insert_id']('{db_prefix}instructions_instructions','id');
+		$this->dispId = (string)$this->id;
 		$this->createdNewInstruction = true;
 		$this->exists = true;
 		return $this;
@@ -930,7 +966,7 @@ class EditInstruction extends Instruction{
 		global $scripturl;
 		$url = '';
 		if($this->id == -1){
-			$url = $scripturl.'?action=instructions';
+			$url = $scripturl;
 		}else{
 			$noeditActions = array(
 				'delete',
@@ -1058,13 +1094,22 @@ function InstructionsGetInstructions($where,$vars,$offset){
 	);
 }
 
+function InstructionsGetRootCatName(){
+	global $modSettings, $smcFunc;
+	$base_cat = (isset($modSettings['instructions_category'])?(int)$modSettings['instructions_category']:1);
+	$request = $smcFunc['db_query']('','SELECT name FROM {db_prefix}categories WHERE id_cat={int:id}',array('id' => $base_cat));
+	$res = $smcFunc['db_fetch_assoc']($request);
+	$smcFunc['db_free_result']($request);
+	return $res['name'];
+}
+
 function InstructionsDisplayCat(){
 	global $context, $modSettings, $scripturl, $txt, $settings, $mbname;
 	global $user_info, $smcFunc, $board, $sourcedir, $board_info;
-	$base_cat = (isset($modSettings['instructions_board'])?(int)$modSettings['instructions_board']:1);
+	$base_cat = (isset($modSettings['instructions_category'])?(int)$modSettings['instructions_category']:1);
 	$offset = 0;
 	
-	$cat_id = isset($_REQUEST['id'])?$_REQUEST['id']:$base_cat;
+	$cat_id = isset($_REQUEST['id'])?$_REQUEST['id']:-1;
 	
 	if(is_string($cat_id) && strpos($cat_id,'.') /* no need for !== false as it may not be first element anyways */){
 		$cat_id = explode('.',$cat_id);
@@ -1072,36 +1117,59 @@ function InstructionsDisplayCat(){
 		$cat_id = (int)$cat_id[0];
 	}
 	
-	if($cat_id != (int)$cat_id || (int)$cat_id <= 0){
-		$cat_id = $base_cat;
+	if($cat_id != (int)$cat_id){
+		$cat_id = -1;
 	}
-	
-	$board = $cat_id;
-	loadBoard();
-	if(!$board_info || ($board_info['id'] != $base_cat && empty($board_info['parent_boards'][$base_cat]))){
-		$board = $base_cat;
-		loadBoard();
-	}
-	$path = array();
-	foreach($board_info['parent_boards'] as $key => $board){
-		$path[$key] = $board['name'];
-	}
-	$path = array_reverse($path,true); // true to also preserve the index
-	
-	$context['instruction_cat'] = array(
-		'name' => $board_info['name'],
-		'id' => $board_info['id'],
-		'path' => $path
-	);
-	$children = array();
-	$request = $smcFunc['db_query']('','SELECT id_board,name FROM {db_prefix}boards WHERE id_parent = {int:id} ORDER BY board_order ASC',array('id' => $board_info['id']));
-	while($res = $smcFunc['db_fetch_assoc']($request)){
-		$children[(int)$res['id_board']] = $res['name'];
-	}
+	$request = $smcFunc['db_query']('','SELECT name FROM {db_prefix}categories WHERE id_cat={int:id}',array('id' => $base_cat));
+	$res = $smcFunc['db_fetch_assoc']($request);
 	$smcFunc['db_free_result']($request);
+	$path = array(
+		-1 => InstructionsGetRootCatName()
+	);
+	if($cat_id == -1){
+		$context['instruction_cat'] = array(
+			'name' => $path[-1],
+			'id' => -1,
+			'path' => $path
+		);
+		$children = array();
+		
+		$request = $smcFunc['db_query']('','SELECT id_board,name FROM {db_prefix}boards WHERE id_parent = 0 AND id_cat={int:id} ORDER BY board_order ASC',array('id' => $base_cat));
+		while($res = $smcFunc['db_fetch_assoc']($request)){
+			$children[(int)$res['id_board']] = $res['name'];
+		}
+		$smcFunc['db_free_result']($request);
+		
+	}else{
+		$board = $cat_id;
+		loadBoard();
+		
+		if(!$board_info ||$board_info['cat']['id'] != $base_cat){
+			$_REQUEST['id'] = -1;
+			InstructionsDisplayCat();
+			return;
+		}
+		foreach($board_info['parent_boards'] as $key => $board){
+			$path[$key] = $board['name'];
+		}
+		$path = array_reverse($path,true); // true to also preserve the index
+		
+		$context['instruction_cat'] = array(
+			'name' => $board_info['name'],
+			'id' => $board_info['id'],
+			'path' => $path
+		);
+		$children = array();
+		$request = $smcFunc['db_query']('','SELECT id_board,name FROM {db_prefix}boards WHERE id_parent = {int:id} ORDER BY board_order ASC',array('id' => $board_info['id']));
+		while($res = $smcFunc['db_fetch_assoc']($request)){
+			$children[(int)$res['id_board']] = $res['name'];
+		}
+		$smcFunc['db_free_result']($request);
+		
+		$context['instruction_cat'] = array_merge($context['instruction_cat'],InstructionsGetInstructions('i.category={int:catid} AND status=1',array('catid' => $board_info['id']),$offset));
+	}
 	
 	
-	$context['instruction_cat'] = array_merge($context['instruction_cat'],InstructionsGetInstructions('i.category={int:catid} AND status=1',array('catid' => $board_info['id']),$offset));
 	
 	$board = 0; // make sure that no board is loaded, else some page style stuff will be off
 	loadBoard();
@@ -1112,17 +1180,19 @@ function InstructionsDisplayCat(){
 			'name' => $mbname
 		)
 	);
+	
 	foreach($context['instruction_cat']['path'] as $id => $name){
 		$context['linktree'][] = array(
-			'url' => $scripturl.'?action=instructions_cat'.($id!=$base_cat?';id='.$id:''),
+			'url' => $scripturl.'?action=instructions_cat'.($id!=-1?';id='.$id:''),
 			'name' => $name
 		);
 	}
-	$context['linktree'][] = array(
-		'url' => $scripturl.'?action=instructions_cat'.($cat_id!=$base_cat?';id='.$cat_id:''),
-		'name' => $context['instruction_cat']['name']
-	);
-	
+	if($cat_id != -1){
+		$context['linktree'][] = array(
+			'url' => $scripturl.'?action=instructions_cat'.($cat_id!=-1?';id='.$cat_id:''),
+			'name' => $context['instruction_cat']['name']
+		);
+	}
 	loadTemplate('Instructions');
 	
 	$context['instruction_cat']['children'] = $children;

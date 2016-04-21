@@ -122,15 +122,15 @@ div.instruction_body {
 	padding:8px;
 	border:1px solid black;
 }
-#instruction_mainimage {
+.instruction_mainimage {
 	text-align:center;
 	margin:20px 0;
 }
-#instruction_mainimage > div {
+.instruction_mainimage > div {
 	display:inline-block;
 	position:relative;
 }
-#instruction_mainimage > div > img {
+.instruction_mainimage > div > img {
 	max-height:465px;
 }
 .instruction_imageslider > div {

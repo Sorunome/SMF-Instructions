@@ -260,7 +260,7 @@ function template_category(){
 		<tbody class="content instruction_childcats">';
 		foreach($inst['children'] as $id => $name){
 			echo '<tr class="windowbg2">
-				<td class="info"><a class="subject" href="index.php?action=instructions;cat='.$id.'"><span>'.$name.'</span></a></td>
+				<td class="info"><a class="subject" href="index.php?action=instructions_cat;id='.$id.'"><span>'.$name.'</span></a></td>
 			</tr>';
 		}
 		echo '</tbody>
