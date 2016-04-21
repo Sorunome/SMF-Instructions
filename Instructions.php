@@ -48,6 +48,15 @@ function InstructionsMain(){
 		case 'savesteporder':
 			$instr->goEdit()->saveStepOrder()->data();
 			break;
+		case 'savenotes':
+			$instr->goEdit()->saveNotes(isset($_REQUEST['note'])?$_REQUEST['note']:-1)->data();
+			break;
+		case 'upvote':
+			$instr->changeKarma(+1);
+			break;
+		case 'downvote':
+			$instr->changeKarma(-1);
+			break;
 		default:
 			$instr->loadSteps(isset($_REQUEST['allsteps'])?'all':0)->view();
 	}
@@ -58,10 +67,6 @@ function InstructionsMain(){
 	}
 	if(isset($_REQUEST['urlupload'])){
 		InstructionsUrlUpload();
-		return;
-	}
-	if(isset($_REQUEST['savenotes'])){
-		InstructionsSaveNotes($_REQUEST['savenotes']);
 		return;
 	}
 	if(isset($_REQUEST['setimgtags'])){
@@ -85,39 +90,13 @@ function InstructionsMain(){
 		InstructionsGetLibrary($_REQUEST['getlibrary']);
 		return;
 	}
-	if(isset($_REQUEST['cat'])){
-		InstructionsDisplayCat($_REQUEST['cat']);
-		return;
-	}
 	if(isset($_REQUEST['deleteimage'])){
 		InstructionsDeleteImage($_REQUEST['deleteimage']);
 		return;
 	}
-	if(isset($_REQUEST['getpublishcats'])){
-		header('Content-Type:application/json');
-		echo json_encode(array('categories' => InstructionsGetPublishCats()));
-		exit;
-	}
-	if(isset($_REQUEST['upvote'])){
-		InstructionsKarma($_REQUEST['upvote'],+1);
-	}
-	if(isset($_REQUEST['downvote'])){
-		InstructionsKarma($_REQUEST['downvote'],-1);
-	}
-	if(isset($_REQUEST['newversion'])){
-		InstructionsNewVersion($_REQUEST['newversion']);
-		exit;
-	}
-	if(isset($_REQUEST['getinstructable'])){
-		InstructionsGetInstructable($_REQUEST['getinstructable']);
-		exit;
-	}
 	if(isset($_REQUEST['iblesimport'])){
 		InstructionsIblesImport($_REQUEST['iblesimport']);
 		exit;
-	}
-	if(isset($_REQUEST['getimages'])){
-		InstructionsGetImageIdsForStep($_REQUEST['getimages']);
 	}
 	InstructionsDisplayCat();
 }
@@ -127,6 +106,11 @@ function InstructionsCats(){
 	
 	InstructionsDisplayCat();
 }
+function InstructionsMisc(){
+	switch(isset($_REQUEST['sa'])?$_REQUEST['sa']:''){
+		
+	}
+}
 
 class Instruction{
 	public $exists = false;
@@ -134,7 +118,7 @@ class Instruction{
 	protected $dispId = '-1';
 	public $steps = array();
 	protected $numSteps = 0;
-	protected $owner = array(
+	public $owner = array(
 		'id_member' => -1,
 		'member_name' => '',
 		'real_name' => ''
@@ -144,7 +128,7 @@ class Instruction{
 	protected $category = -1;
 	public $upvotes = 0;
 	public $downvotes = 0;
-	protected $topic_id = -1;
+	public $topic_id = -1;
 	public $publish_date = 0;
 	protected $new_instruction = -1;
 	public $origUrl = '';
@@ -349,7 +333,7 @@ class Instruction{
 				$addUrl .= ';'.urlencode($i).'='.urlencode($v);
 			}
 		}
-		return $scripturl.'?action=instructions'.($sa != ''?';sa='.$sa:'').';id='.$this->dispId.$addUrl.$hash;
+		return $scripturl.'?action=instructions;id='.$this->dispId.($sa != ''?';sa='.$sa:'').$addUrl.$hash;
 	}
 	public function __construct($id,$follow = false,$depth = 0,$origDispId = ''){
 		global $smcFunc,$sourcedir,$modSettings,$scripturl,$settings;
@@ -511,9 +495,11 @@ class Instruction{
 		$context['html_headers'] .= $this->html_headers;
 		$context['page_title'] = $this->name;
 		$context['sub_template'] = 'view';
-		if($this->id == -1){
+		if(!$this->exists){
 			fatal_lang_error('instruction_not_found',false);
 		}
+		loadMemberData((int)$this->owner['id_member']); // load some data about the author
+		loadMemberContext((int)$this->owner['id_member']);
 		return $this->mustView()->loadLinkTree()->get();
 	}
 	public function edit(){
@@ -628,6 +614,50 @@ class Instruction{
 			),
 			'published' => $this->published
 		);
+	}
+	public function changeKarma($direction){
+		global $smcFunc,$user_info;
+		if(!$this->exists || !allowedTo('karma_edit')){
+			fatal_lang_error('instruction_not_found',false);
+		}
+		$votes = array();
+		$request = $smcFunc['db_query']('','SELECT votes FROM {db_prefix}instructions_members WHERE member_id = {int:id}',array('id' => $user_info['id']));
+		if($res = $smcFunc['db_fetch_assoc']($request)){
+			$votes = json_decode($res['votes'],true);
+		}else{
+			$smcFunc['db_insert']('insert','{db_prefix}instructions_members',
+				array(
+					'member_id' => 'int'
+				),
+				array(
+					$user_info['id']
+				),
+				array('member_id')
+			);
+		}
+		$smcFunc['db_free_result']($request);
+		if(isset($votes[$this->id])){
+			if($direction != $votes[$this->id]){
+				// we actually have to do something
+				$votes[$this->id] = $direction;
+				if($direction == 1){
+					$s = 'upvotes = upvotes + 1,downvotes = downvotes - 1';
+				}else{
+					$s = 'upvotes = upvotes - 1,downvotes = downvotes + 1';
+				}
+				$smcFunc['db_query']('','UPDATE {db_prefix}instructions_instructions SET '.$s.' WHERE id = {int:id}',array('id' => $this->id));
+			}
+		}else{
+			$votes[$this->id] = $direction;
+			if($direction == 1){
+				$s = 'upvotes = upvotes + 1';
+			}else{
+				$s = 'upvotes = upvotes - 1';
+			}
+			$smcFunc['db_query']('','UPDATE {db_prefix}instructions_instructions SET '.$s.' WHERE id = {int:id}',array('id' => $this->id));
+		}
+		$smcFunc['db_query']('','UPDATE {db_prefix}instructions_members SET votes = {string:votes} WHERE member_id = {int:id}',array('id' => $user_info['id'],'votes' => json_encode($votes)));
+		redirectexit($this->getUrl());
 	}
 }
 class EditInstruction extends Instruction{
@@ -962,6 +992,34 @@ class EditInstruction extends Instruction{
 		}
 		return $this->updateFirstStep();
 	}
+	public function saveNotes($noteid){
+		global $smcFunc;
+		if($noteid == -1){
+			$this->error = true;
+			$this->error_msg = 'No image note specified';
+			return $this;
+		}
+		if(!isset($_REQUEST['annotations'])){
+			$this->error = true;
+			$this->error_msg = 'No post body specified';
+			return $this;
+		}
+		$json = json_decode($_REQUEST['annotations'],true);
+		if(!is_array($json)){
+			$this->error = true;
+			$this->error_msg = 'Invalid post body';
+		}
+		$newAnnotations = array();
+		foreach($json as $j){
+			if(array_is_of_pattern($j,array('x'=>0.0,'y'=>0.0,'w'=>0.0,'h'=>0.0,'body'=>'')) && $j['x'] < 1 && $j['y'] < 1 && $j['x'] >= 0 && $j['y'] >= 0 && $j['w'] > 0 && $j['h'] > 0){
+				$j['w'] = min($j['w'],1-$j['x']);
+				$j['h'] = min($j['h'],1-$j['y']);
+				$newAnnotations[] = $j;
+			}
+		}
+		$smcFunc['db_query']('','UPDATE {db_prefix}instructions_images SET annotations = {string:annotations} WHERE id={int:id}',array('annotations' => json_encode($newAnnotations),'id' => $noteid));
+		return $this;
+	}
 	public function data(){
 		global $scripturl;
 		$url = '';
@@ -999,7 +1057,7 @@ function InstructionsGetPublishCats_Recursion($node){
 	return array(
 		'id' => (int)$node['id'],
 		'name' => $node['name'],
-		'canpublish' => (bool)allowedTo('inst_publish_instruction',$node['id']),
+		'canpublish' => $node['id']!=-1 && (bool)allowedTo('inst_publish_instruction',$node['id']),
 		'children' => $children
 	);
 }
@@ -1008,10 +1066,25 @@ function InstructionsGetPublishCats(){
 	global $context, $modSettings, $scripturl, $txt, $settings;
 	global $user_info, $smcFunc, $board, $sourcedir, $board_info;
 	global $boards,$boardList,$cat_tree;
-	$base_cat = (isset($modSettings['instructions_board'])?(int)$modSettings['instructions_board']:1);
+	$base_cat = (isset($modSettings['instructions_category'])?(int)$modSettings['instructions_category']:1);
 	include_once($sourcedir . '/Subs-Boards.php');
 	getBoardTree();
-	return InstructionsGetPublishCats_Recursion($boards[$base_cat]);
+	$children = array();
+	foreach($boards as $id => $b){
+		if($b['level'] == 0 && $b['category'] == $base_cat){
+			$children[] = array(
+				'node' => $b
+			);
+		}
+	}
+	
+	return InstructionsGetPublishCats_Recursion(array(
+		'id' => -1,
+		'name' => InstructionsGetRootCatName(),
+		'tree' => array(
+			'children' => $children
+		)
+	));
 }
 
 
@@ -1222,9 +1295,6 @@ function InstructionsLoadProfile($member_id){
 	$context['instructions']['caturl'] = $scripturl.'?action=profile;u='.$member_id.($context['instructions']['offset']>0?';start='.$context['instructions']['offset']:'');
 }
 
-
-
-
 function InstructionsUrlUpload(){
 	global $context, $modSettings, $scripturl, $txt, $settings;
 	global $user_info, $smcFunc, $board, $sourcedir;
@@ -1379,108 +1449,6 @@ function array_is_of_pattern($array,$pattern){
 	return array_map('gettype',$array) == array_map('gettype',$pattern);
 }
 
-function InstructionsSaveNotes($id){
-	global $context, $modSettings, $scripturl, $txt, $settings;
-	global $user_info, $smcFunc, $board;
-	header('Content-Type: application/json');
-	$id = (int)$id;
-	
-	$request = $smcFunc['db_query']('','SELECT id,owner FROM {db_prefix}instructions_images WHERE id = {int:id}',array('id' => $id));
-	if($res = $smcFunc['db_fetch_assoc']($request)){
-		$id = (int)$res['id'];
-	}else{
-		$id = -1;
-	}
-	$smcFunc['db_free_result']($request);
-	if($id == -1){
-		die('{"success":false,"msg":"image not found"}');
-	}
-	$canEdit = allowedTo('inst_can_edit_any') || ($user_info['id'] == $res['owner'] && allowedTo('inst_can_edit_own'));
-	if(!$canEdit){
-		die('{"success":false,"msg":"permission denied"}');
-	}
-	
-	if(!isset($_REQUEST['annotations'])){
-		die('{"success":false,"msg":"missing required fields"}');
-	}
-	$json = json_decode($_REQUEST['annotations'],true);
-	if(!is_array($json)){
-		die('{"success":false,"msg":"invalid data type"}');
-	}
-	$newAnnotations = array();
-	foreach($json as $j){
-		if(array_is_of_pattern($j,array('x'=>0.0,'y'=>0.0,'w'=>0.0,'h'=>0.0,'body'=>'')) && $j['x'] < 1 && $j['y'] < 1 && $j['x'] >= 0 && $j['y'] >= 0 && $j['w'] > 0 && $j['h'] > 0){
-			$j['w'] = min($j['w'],1-$j['x']);
-			$j['h'] = min($j['h'],1-$j['y']);
-			$newAnnotations[] = $j;
-		}
-	}
-	$smcFunc['db_query']('','UPDATE {db_prefix}instructions_images SET annotations = {string:annotations} WHERE id={int:id}',array('annotations' => json_encode($newAnnotations),'id' => $id));
-	echo '{"success":true}';
-	
-	exit;
-}
-
-function InstructionsSetImgTags($id){
-	global $context, $modSettings, $scripturl, $txt, $settings;
-	global $user_info, $smcFunc, $board;
-	header('Content-Type: application/json');
-	$id = (int)$id;
-	
-	$request = $smcFunc['db_query']('','SELECT id,owner FROM {db_prefix}instructions_images WHERE id = {int:id}',array('id' => $id));
-	if($res = $smcFunc['db_fetch_assoc']($request)){
-		$id = (int)$res['id'];
-		$owner = (int)$res['owner']; // important as admin id != owner id
-	}else{
-		$id = -1;
-	}
-	$smcFunc['db_free_result']($request);
-	
-	if($id == -1){
-		die('{"success":false,"msg":"image not found"}');
-	}
-	$canEdit = allowedTo('inst_can_edit_any') || ($user_info['id'] == $owner && allowedTo('inst_can_edit_own'));
-	if(!$canEdit){
-		die('{"success":false,"msg":"permission denied"}');
-	}
-	
-	if(!isset($_REQUEST['tags'])){
-		die('{"success":false,"msg":"missing required fields"}');
-	}
-	$tags = $_REQUEST['tags'];
-	if(!preg_match('/^[a-zA-Z0-9- _:.#]+(,[a-zA-Z0-9- _:.#]+)*,?$/',$tags) || $tags ===''){
-		die('{"success":false,"msg":"invalid format"}');
-	}
-	
-	$tags = explode(',',$tags);
-	$tags = array_filter($tags); // remove empty elements
-	$tags = array_unique($tags); // remove duplicates
-	$smcFunc['db_query']('','UPDATE {db_prefix}instructions_images SET tags = {string:tags} WHERE id={int:id}',array('tags' => InstructionsMakeSQLArray($tags),'id' => $id));
-	
-	// now update the cache for which tags one has
-	$request = $smcFunc['db_query']('','SELECT tags FROM {db_prefix}instructions_members WHERE member_id = {int:id}',array('id' => $owner));
-	if($res = $smcFunc['db_fetch_assoc']($request)){
-		$smcFunc['db_free_result']($request);
-		$tags = array_merge($tags,InstructionsGetSQLArray($res['tags']));
-		$tags = array_unique($tags);
-		$smcFunc['db_query']('','UPDATE {db_prefix}instructions_members SET tags = {string:tags} WHERE member_id={int:id}',array('tags' => InstructionsMakeSQLArray($tags),'id' => $owner));
-	}else{
-		$smcFunc['db_free_result']($request);
-		$smcFunc['db_insert']('insert','{db_prefix}instructions_members',
-			array(
-				'member_id' => 'int', 'tags' => 'string'
-			),
-			array(
-				$owner, InstructionsMakeSQLArray($tags)
-			),
-			array('member_id','tags')
-		);
-	}
-	
-	die('{"success":true}');
-	exit;
-}
-
 function InstructionsGetLibrary($tag = -1){
 	global $context, $modSettings, $scripturl, $txt, $settings;
 	global $user_info, $smcFunc, $board;
@@ -1555,107 +1523,6 @@ function InstructionsDeleteImage($imgid){
 	exit;
 }
 
-function InstructionsKarma($id,$direction){
-	global $context, $modSettings, $scripturl, $txt, $settings;
-	global $user_info, $smcFunc, $board, $user_profile, $memberContext, $board_info, $mbname;
-	
-	isAllowedTo('karma_edit');
-	
-	$direction = $direction==-1?-1:1; // make sure it's only one of the two
-	
-	$canView = allowedTo('inst_can_view_published');
-	$canEdit = false;
-	$canDelete = false;
-	if($id == ''){
-		$id = -1;
-	}
-	if($canView){ // are we allowed to view the instruction?
-	
-		$step = (int)$step; // just to make sure
-		
-		$instruction_name = '';
-		
-		$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status,category,upvotes,downvotes,topic_id FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => $id));
-		if($instr = $smcFunc['db_fetch_assoc']($request)){
-			$id = (int)$instr['id'];
-			if($instr['url']!=''){
-				$dispId = $instr['url'];
-			}else{
-				$dispId = $id;
-			}
-			$instruction_name = $instr['name'];
-		}else{
-			$id = -1;
-			$dispId = -1;
-		}
-		$smcFunc['db_free_result']($request);
-		$published = (int)$instr['status'] > 0;
-		if(!$published){ // this instruction isn't published yet!
-			$canView = false;
-			if(allowedTo('inst_can_view_unpublished_any') || ($user_info['id'] == $instr['owner'] && allowedTo('inst_can_view_unpublished_own'))){
-				$canView = true;
-			}
-		}
-		$canEdit = allowedTo('inst_can_edit_any') || ($user_info['id'] == $instr['owner'] && allowedTo('inst_can_edit_own'));
-	}
-	if($id == -1){
-		fatal_lang_error('instruction_not_found',false);
-	}
-	if(!$canView){
-		fatal_lang_error('instruction_cant_view',false);
-	}
-	
-	$request = $smcFunc['db_query']('','SELECT votes FROM {db_prefix}instructions_members WHERE member_id = {int:id}',array('id' => $user_info['id']));
-	if($res = $smcFunc['db_fetch_assoc']($request)){
-		$votes = json_decode($res['votes'],true);
-	}else{
-		$smcFunc['db_insert']('insert','{db_prefix}instructions_members',
-			array(
-				'member_id' => 'int'
-			),
-			array(
-				$user_info['id']
-			),
-			array('member_id')
-		);
-		$votes = array();
-	}
-	$smcFunc['db_free_result']($request);
-	
-	if(isset($votes[$id])){
-		if($direction != $votes[$id]){
-			// we actually have to do something
-			$votes[$id] = $direction;
-			if($direction == 1){
-				$s = 'upvotes = upvotes + 1,downvotes = downvotes - 1';
-			}else{
-				$s = 'upvotes = upvotes - 1,downvotes = downvotes + 1';
-			}
-			$smcFunc['db_query']('','UPDATE {db_prefix}instructions_instructions SET '.$s.' WHERE id = {int:id}',array('id' => $id));
-		}
-	}else{
-		$votes[$id] = $direction;
-		if($direction == 1){
-			$s = 'upvotes = upvotes + 1';
-		}else{
-			$s = 'upvotes = upvotes - 1';
-		}
-		$smcFunc['db_query']('','UPDATE {db_prefix}instructions_instructions SET '.$s.' WHERE id = {int:id}',array('id' => $id));
-	}
-	$smcFunc['db_query']('','UPDATE {db_prefix}instructions_members SET votes = {string:votes} WHERE member_id = {int:id}',array('id' => $user_info['id'],'votes' => json_encode($votes)));
-	redirectexit(InstructionsGetURL($dispId));
-}
-
-function InstructionsGetInstructable($ible){
-	header('Content-Type: text/json');
-	$s = file_get_contents('http://www.instructables.com/json-api/showInstructable?id='.urlencode($ible).'&t='.time());
-	if($s == ''){
-		echo '{"success":false}';
-	}
-	echo $s;
-	exit;
-}
-
 function InstructionsIblesImport($id){
 	global $context, $modSettings, $scripturl, $txt, $settings;
 	global $user_info, $smcFunc, $board;
@@ -1693,43 +1560,4 @@ function InstructionsIblesImport($id){
 	exit;
 }
 
-function InstructionsGetImageIdsForStep($id){
-	global $context, $modSettings, $scripturl, $txt, $settings;
-	global $user_info, $smcFunc, $board;
-	
-	header('Content-Type: text/json');
-	
-	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status, publish_date FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => $id));
-	if($res = $smcFunc['db_fetch_assoc']($request)){
-		$id = (int)$res['id'];
-	}else{
-		$id = -1;
-	}
-	$smcFunc['db_free_result']($request);
-	if($id == -1){
-		die('{"success":false,"msg":"instruction not found"}');
-	}
-	$canEdit = allowedTo('inst_can_edit_any') || ($user_info['id'] == $res['owner'] && allowedTo('inst_can_edit_own'));
-	
-	if(!$canEdit){
-		die('{"success":false,"msg":"permission denied"}');
-	}
-	if(empty($_REQUEST['step']) || $_REQUEST['step'] != (int)$_REQUEST['step']){
-		die('{"success":false,"msg":"missing required field"}');
-	}
-	$request = $smcFunc['db_query']('','SELECT images FROM {db_prefix}instructions_steps WHERE instruction_id = {int:id} AND id = {int:step} ORDER BY sorder ASC',array('id' => $id,'step' => $_REQUEST['step']));
-	
-	if($res = $smcFunc['db_fetch_assoc']($request)){
-		$images = InstructionsGetSQLArray($res['images']);
-	}else{
-		$smcFunc['db_free_result']($request);
-		die('{"success":false,"msg":"step not found"}');
-	}
-	$smcFunc['db_free_result']($request);
-	echo json_encode(array(
-		'success' => true,
-		'images' => $images
-	));
-	exit;
-}
 ?>

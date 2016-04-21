@@ -34,7 +34,8 @@ loadLanguage('Instructions_global');
 function loadInstructionsActions_hook(&$actionArray){
 	$actionArray = array_merge($actionArray,array(
 		'instructions' => array('Instructions.php','InstructionsMain'),
-		'instructions_cat' => array('Instructions.php','InstructionsCats')
+		'instructions_cat' => array('Instructions.php','InstructionsCats'),
+		'instructions_misc' => array('Instructions.php','InstructionsMisc')
 	));
 }
 function loadInstructionsMenu_hook(&$buttons){

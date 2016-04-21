@@ -1029,7 +1029,7 @@ function instruction_edit_save_annotation(callback){
 			};
 		}).get();
 	instruction_edit_images[instruction_edit_curimage].annotations = annotations;
-	$.post(smf_scripturl+'?action=instructions;savenotes='+id,{
+	$.post(instruction_urls.savenotes+';note='+id,{
 		annotations:JSON.stringify(annotations)
 	}).done(function(data){
 		if(!data.success){

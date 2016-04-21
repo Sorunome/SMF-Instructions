@@ -34,7 +34,25 @@ function getInstructionsTable($inst){
 }
 
 function template_view(){
-	global $instr,$context,$txt;
+	global $instr,$context,$txt,$memberContext;
+	
+	if($instr->owner['id_member']!=-1 && isset($memberContext[$instr->owner['id_member']])){
+		$ownerCtx = $memberContext[$instr->owner['id_member']];
+		echo '<div class="windowbg instruction_authorinfo"><span class="topslice"><span></span></span>
+		<div class="content">
+			<ul class="invisibleList">
+				'.($ownerCtx['avatar']['image']!=''?'<li class="avatar">'.$ownerCtx['avatar']['image'].'</li>':'').'
+				<li>
+					<strong class="username">'.$ownerCtx['link'].'</strong>
+					'.($ownerCtx['title']!=''?'<br>'.htmlentities($ownerCtx['title']):'').'
+					'.($ownerCtx['group']!=''?'<br>'.htmlentities($ownerCtx['group']):'').'
+					'.($ownerCtx['post_group']!=''?'<br>'.htmlentities($ownerCtx['post_group']):'').'
+					<br>'.$ownerCtx['group_stars'].'
+				</li>
+			</ul>
+		</div>
+		<span class="botslice"><span></span></span></div>';
+	}
 	
 	if(!$instr->published){
 		echo '<div class="information"><span class="error">',$txt['inst_unpublished'],'</span></div>';
@@ -73,6 +91,11 @@ function template_view(){
 	
 	echo $admintools,'
 	<h1 class="instruction_name">',$instr->name_parsed,'</h1>
+	<ul class="instruction_description description">
+		'.($instr->topic_id!=-1?'<li>→ <a href="index.php?topic='.$instr->topic_id.'.0;topscreen">Discuss</a></li>':'').'
+		<li>→ Rating: +'.$instr->upvotes.'/-'.$instr->downvotes.(allowedTo('karma_edit')?' <a href="'.$instr->getUrl('upvote').'">[upvote]</a> <a href="'.$instr->getUrl('downvote').'">[downvote]</a>':'').'
+		'.($instr->publish_date!=0?'<li>→ Published on '.timeformat($instr->publish_date).'</li>':'').'
+	</ul>
 	',$stepnav,'
 	<div id="instruction_bigimage" class="instructions_overlay"><div><img></img><div id="instruction_big_annotations"></div><span class="close">',$txt['inst_close'],'</span><span class="left"></span><span class="right"></span></div></div>
 	
@@ -236,6 +259,7 @@ function template_edit(){
 		instruction_edit_sceditorurl = '.json_encode($modSettings['instructions_sceditor_url']).';
 		instruction_urls = '.json_encode(array(
 			'save' => $instr->getUrl('save',array('stepid')),
+			'savenotes' => $instr->getUrl('savenotes'),
 			'deletestep' => $instr->getUrl('deletestep',array('stepid')),
 			'publish' => $instr->getUrl('publish'),
 			'newversion' => $instr->getUrl('newversion'),
