@@ -181,7 +181,7 @@ function instruction_dispImage(step,id,invocedElem){
 	$annotations.empty();
 	$mainImg.off('resize').off('load');
 	$mainImg.css('margin-left',0);
-	console.log(instruction_images[step][id]);
+	
 	if(instruction_images[step][id]['annotations']){
 		$mainImg.css('margin-left',0);
 		$mainImg.off('calcresize');
@@ -252,7 +252,7 @@ function instruction_edit_runImport(){
 		tag = instruction_import_data.title.replace(/[^a-zA-Z0-9 -]/g,'').trim(),
 		updateImport = function(done){
 			$.ajax({
-				url:smf_scripturl+'?action=instructions;iblesimport='+instruction_edit_id+(done===true?';done':''),
+				url:smf_scripturl+'?action=instructions;id='+instruction_edit_id+';sa=import;'+(done===true?';done':''),
 				async:false,
 				method:'POST',
 				data:{data:JSON.stringify(instruction_import_data)}
@@ -269,21 +269,21 @@ function instruction_edit_runImport(){
 		}else{
 			var imagelist;
 			$.ajax({
-				url:smf_scripturl+'?action=instructions;getimages='+instruction_edit_id+';step='+parseInt(step.id,10),
+				url:smf_scripturl+'?action=instructions;id='+instruction_edit_id+';sa=data;step='+parseInt(i,10),
 				async:false,
 				method:'GET'
 			}).done(function(data){
 				if(!data.success){
 					$status.append("<b>ERROR: Couldn't fetch image list for step"+(data.msg?': '+data.msg:'!')+'</b><br>');
 				}
-				imagelist = data.images;
+				imagelist = data.steps[parseInt(i,10)].image_ids;
 			});
 			$.map(step.images,function(img,ii){
 				if(!img.done){
 					var imagedata;
 					$status.append('Fetching image '+img.url.toString()+'...<br>');
 					$.ajax({
-						url:smf_scripturl+'?action=instructions;urlupload',
+						url:smf_scripturl+'?action=instructions_misc;sa=urlupload',
 						async:false,
 						method:'POST',
 						data:{url:img.url}
@@ -298,7 +298,7 @@ function instruction_edit_runImport(){
 						imagelist.push(imagedata.image.id)
 						$status.append('Adding image '+img.url.toString()+' to step '+i+'...<br>');
 						$.ajax({
-							url:smf_scripturl+'?action=instructions;save='+instruction_edit_id+';stepid='+parseInt(step.id,10),
+							url:smf_scripturl+'?action=instructions;id='+instruction_edit_id+';sa=save;stepid='+parseInt(step.id,10),
 							async:false,
 							method:'POST',
 							data:{
@@ -311,7 +311,7 @@ function instruction_edit_runImport(){
 						});
 						$status.append('Adding tag to image '+img.url+'...<br>');
 						$.ajax({
-							url:smf_scripturl+'?action=instructions;setimgtags='+imagedata.image.id,
+							url:smf_scripturl+'?action=instructions_misc;sa=setimgtags;id='+imagedata.image.id,
 							async:false,
 							method:'POST',
 							data:{
@@ -324,7 +324,7 @@ function instruction_edit_runImport(){
 						});
 						$status.append('Saving annotations of image '+img.url.toString()+'...<br>');
 						$.ajax({
-							url:smf_scripturl+'?action=instructions;savenotes='+imagedata.image.id,
+							url:smf_scripturl+'?action=instructions;id='+instruction_edit_id+';sa=savenotes;note='+imagedata.image.id,
 							async:false,
 							method:'POST',
 							data:{
@@ -344,7 +344,7 @@ function instruction_edit_runImport(){
 		}
 	});
 	updateImport(true);
-	window.location.href = smf_scripturl+'?action=instructions;edit='+instruction_edit_id;
+	window.location.href = smf_scripturl+'?action=instructions;id='+instruction_edit_id+';sa=edit';
 }
 
 function instruction_edit_initImport(){
@@ -353,12 +353,12 @@ function instruction_edit_initImport(){
 	if(ibleid===null){
 		return;
 	}
-	ibleid = ibleid.replace(/^(http:\/\/www\.instructables\.com\/id\/)([^\/?;#]+)(.*)/,'$2');
+	ibleid = ibleid.replace(/^(https?:\/\/www\.instructables\.com\/id\/)([^\/?;#]+)(.*)/,'$2');
 	if(ibleid.indexOf('/')!==-1){
 		alert('Invalid URL');
 		return;
 	}
-	$.getJSON(smf_scripturl+'?action=instructions;getinstructable='+encodeURIComponent(ibleid)).done(function(ible){
+	$.getJSON(smf_scripturl+'?action=instructions_misc;sa=getinstructable;id='+encodeURIComponent(ibleid)).done(function(ible){
 		if(ible.success === false){
 			alert('Instructable not found!');
 			return;
@@ -367,10 +367,10 @@ function instruction_edit_initImport(){
 			alert('You can only import step by step instructables!');
 			return;
 		}
-		if(ible.author.url.indexOf(smf_scripturl.split('/index.php')[0])!==0){
+		/*if(ible.author.url.indexOf(smf_scripturl.split('/index.php')[0])!==0){
 			alert('Please set your homepage URL on instructables temporarily to your forum profile to prove that you own this instruction!');
 			return;
-		}
+		}*/
 		if(!confirm('Continue with import?\nInstructable to import: '+ible.title+'\nImported instructabl will '+(replace?'replace':'be added to')+' the current instruction\nThis can take some time, just leave the page open!')){
 			return;
 		}
@@ -379,7 +379,7 @@ function instruction_edit_initImport(){
 				var totalSteps = ible.steps.length,
 					instructionStepIds = [],
 					addStep = function(i){
-						$.getJSON(smf_scripturl+'?action=instructions;addstep='+instruction_edit_id).done(function(data){
+						$.getJSON(smf_scripturl+'?action=instructions;id='+instruction_edit_id+';sa=addstep').done(function(data){
 							if(!data.success){
 								alert("ERROR: Couldn't add a step"+(data.msg?': '+data.msg:'!'));
 								alert('Instructable import failed');
@@ -387,7 +387,7 @@ function instruction_edit_initImport(){
 								var bbcode = $('#instructions_edit_bbceditor').sceditor('instance').toBBCode(ible.steps[i].body),
 									title = ible.steps[i].title;
 								instructionStepIds.push({
-									id:data.stepid,
+									id:data.step_id,
 									done:false,
 									images:$.map(ible.steps[i].files,function(f){
 										if(f.image){
@@ -407,7 +407,7 @@ function instruction_edit_initImport(){
 										}
 									})
 								});
-								$.post(smf_scripturl+'?action=instructions;save='+instruction_edit_id+';stepid='+data.stepid,{
+								$.post(smf_scripturl+'?action=instructions;id='+instruction_edit_id+';sa=save;stepid='+data.step_id,{
 									body:bbcode,
 									title:title
 								}).done(function(data2){
@@ -420,7 +420,7 @@ function instruction_edit_initImport(){
 									}else{
 										var callback = function(){
 											// here we store in the DB the stuff needed for the import and then redirect to the same page again where the import will begin!
-											$.post(smf_scripturl+'?action=instructions;iblesimport='+instruction_edit_id,{
+											$.post(smf_scripturl+'?action=instructions;id='+instruction_edit_id+';sa=import',{
 												data:JSON.stringify({
 													title:ible.title,
 													steps:instructionStepIds
@@ -429,12 +429,12 @@ function instruction_edit_initImport(){
 												if(!data.success){
 													alert("ERROR: Couldn't initialize image import"+(data.msg?': '+data.msg:'!'));
 												}
-												window.location.href = smf_scripturl+'?action=instructions;edit='+instruction_edit_id; // we are now in image import mode!
+												window.location.href = smf_scripturl+'?action=instructions;id='+instruction_edit_id+';sa=edit'; // we are now in image import mode!
 											});
 										};
 										if(replace){
 											// now we can delete the last unneeded step
-											$.getJSON(smf_scripturl+'?action=instructions;deletestep='+instruction_edit_id+';stepid='+instruction_edit_stepid).done(function(data){
+											$.getJSON(smf_scripturl+'?action=instructions;id='+instruction_edit_id+';sa=deletestep;stepid='+instruction_edit_stepid).done(function(data){
 												if(!data.success){
 													alert("ERROR: Couldn't delete a step"+(data.msg?': '+data.msg:'!'));
 												}
@@ -457,7 +457,7 @@ function instruction_edit_initImport(){
 					$('ul.instruction_stepcontainer.invisibleList > li').map(function(i){
 						var id = parseInt(this.dataset.id,10)
 						if(id!=-1 && id!=instruction_edit_stepid){
-							$.getJSON(smf_scripturl+'?action=instructions;deletestep='+instruction_edit_id+';stepid='+id).done(function(data){
+							$.getJSON(smf_scripturl+'?action=instructions;id='+instruction_edit_id+';sa=deletestep;stepid='+id).done(function(data){
 								if(!data.success){
 									alert("ERROR: Couldn't delete a step"+(data.msg?': '+data.msg:'!'));
 								}
@@ -580,7 +580,7 @@ function instruction_edit_buildEditor(){
 	instruction_edit_initSCEditor();
 	
 	var uploadObj = $('#instructions_fileupload').uploadFile({
-		url:smf_scripturl+'?action=instructions;fileupload=1',
+		url:smf_scripturl+'?action=instructions_misc;sa=fileupload',
 		multiple:true,
 		dragDrop:true,
 		fileName:"files",
@@ -597,12 +597,12 @@ function instruction_edit_buildEditor(){
 		showStatusAfterSuccess:false
 	});
 	instruction_upload_id_offset = 0;
-	instruciton_upload_order = [];
+	instruction_upload_order = [];
 	$('#instructions_start_upload').click(function(e){
 		$('#instructions_edit_files li.ui-sortable-handle').map(function(i){
 			$(this).data('sorder',i);
 		});
-		instruciton_upload_order = $('#instructions_edit_upload_img > .ajax-file-upload-statusbar > .ajax-file-upload-filename').map(function(){
+		instruction_upload_order = $('#instructions_edit_upload_img > .ajax-file-upload-statusbar > .ajax-file-upload-filename').map(function(){
 			var s = $(this).text();
 			return s.substr(s.indexOf(' ')+1).toLowerCase();
 		}).get().reverse()
@@ -644,7 +644,7 @@ function instruction_edit_buildEditor(){
 			}
 		}
 	});
-	$.get(smf_scripturl+'?action=instructions;getimgtags=1').done(function(data){
+	$.get(smf_scripturl+'?action=instructions_misc;sa=getimgtags').done(function(data){
 		$('#instructions_edit_imagetabs select').append(
 			$('<option>').text('all').val('-1'),
 			$.map(data.tags,function(t){
@@ -758,7 +758,7 @@ function Instructions_edit_upload_url(){
 	}
 	instructions_uploading_url = true;
 	$('#instructions_uploadurl_progress').text('Uploading....');
-	$.post(smf_scripturl+'?action=instructions;urlupload',{
+	$.post(smf_scripturl+'?action=instructions_misc;sa=urlupload',{
 		url:url
 	}).done(function(data){
 		instructions_uploading_url = false;
@@ -776,7 +776,7 @@ function Instructions_edit_upload_url(){
 }
 
 function instruction_edit_getimglibrary(tag,offset){
-	$.getJSON(smf_scripturl+'?action=instructions;getlibrary='+tag+';offset='+offset).done(function(data){
+	$.getJSON(smf_scripturl+'?action=instructions_misc;sa=getlibrary;lib='+tag+';offset='+offset).done(function(data){
 		var $pager = $('<div>').addClass('instruction_edit_pager').append(
 				(offset!=0?$('<a>').text('« Previous').addClass('instruction_edit_previous'):''),
 				$('<span>').text(' '+(offset + 1).toString()+'-'+(offset + data.images.length).toString()+' of '+data.max.toString()+' '),
@@ -792,7 +792,7 @@ function instruction_edit_getimglibrary(tag,offset){
 						$('<span>').text('x').addClass('instruction_edit_image_close').click(function(e){
 							e.stopPropagation();
 							if(confirm('Are you sure you want to delete this image completely? This cannot be undone!')){
-								$.get(smf_scripturl+'?action=instructions;deleteimage='+$(this).parent().data('img').id).done(function(data){
+								$.get(smf_scripturl+'?action=instructions_misc;sa=deleteimage;id='+$(this).parent().data('img').id).done(function(data){
 									if(data.success){
 										instruction_edit_getimglibrary(tag,offset);
 										return;
@@ -818,7 +818,7 @@ function instruction_edit_getimglibrary(tag,offset){
 }
 
 function instruction_edit_setImageTags(id,tags){
-	$.post(smf_scripturl+'?action=instructions;setimgtags='+id,{
+	$.post(smf_scripturl+'?action=instructions_misc;sa=setimgtags;id='+id,{
 		tags:tags.trim()
 	}).done(function(data){
 		if(!data.success){
@@ -828,13 +828,15 @@ function instruction_edit_setImageTags(id,tags){
 }
 
 function instruction_edit_uploadSuccess(fileArray,data,xhr,pd){
-	if($('#instructions_edit_autoaddnewimg')[0].checked && $('#instructions_edit_autotagnewimg').val()!=''){
-		var i = instruciton_upload_order.indexOf(data.image.name.toLowerCase());
+	if($('#instructions_edit_autoaddnewimg')[0].checked){
+		var i = instruction_upload_order.indexOf(data.image.name.toLowerCase());
 		if(i != -1){
 			instruction_edit_addImage(data.image,i + instruction_upload_id_offset);
 		}else{
 			instruction_edit_addImage(data.image);
 		}
+	}
+	if($('#instructions_edit_autotagnewimg').val()!=''){
 		instruction_edit_setImageTags(data.image.id,$('#instructions_edit_autotagnewimg').val());
 	}
 }

@@ -8,7 +8,7 @@ define('INSTRUCTIONS_SELECT','SELECT i.id,i.main_image,i.name,i.url,i.status,i.c
 	u.member_name,u.id_member,u.real_name
 	FROM {db_prefix}instructions_instructions i INNER JOIN {db_prefix}members u ON i.owner=u.id_member ');
 define('INSTRUCTIONS_STEPS_FETCH_VARS','id,body,images,title,main_image');
-define('INSTRUCTIONS_IMAGES_FETCH_VARS','id,annotations,extension,resizeTypes,name');
+define('INSTRUCTIONS_IMAGES_FETCH_VARS','id,annotations,extension,resizeTypes,name,owner');
 
 
 function InstructionsMain(){
@@ -57,48 +57,15 @@ function InstructionsMain(){
 		case 'downvote':
 			$instr->changeKarma(-1);
 			break;
+		case 'data':
+			$instr->loadStep()->data();
+			break;
+		case 'import':
+			$instr->goEdit()->import(json_decode($_REQUEST['data'],true))->data();
+			break;
 		default:
 			$instr->loadSteps(isset($_REQUEST['allsteps'])?'all':0)->view();
 	}
-	return;
-	if(isset($_REQUEST['fileupload'])){
-		InstructionsUpload();
-		return;
-	}
-	if(isset($_REQUEST['urlupload'])){
-		InstructionsUrlUpload();
-		return;
-	}
-	if(isset($_REQUEST['setimgtags'])){
-		InstructionsSetImgTags($_REQUEST['setimgtags']);
-		return;
-	}
-	if(isset($_REQUEST['getimgtags'])){
-		header('Content-Type: text/json');
-		$request = $smcFunc['db_query']('','SELECT tags FROM {db_prefix}instructions_members WHERE member_id = {int:id}',array('id' => $user_info['id']));
-		$tags = array();
-		if($res = $smcFunc['db_fetch_assoc']($request)){
-			$tags = InstructionsGetSQLArray($res['tags']);
-		}
-		$smcFunc['db_free_result']($request);
-		echo json_encode(array(
-			'tags' => $tags
-		));
-		exit;
-	}
-	if(isset($_REQUEST['getlibrary'])){
-		InstructionsGetLibrary($_REQUEST['getlibrary']);
-		return;
-	}
-	if(isset($_REQUEST['deleteimage'])){
-		InstructionsDeleteImage($_REQUEST['deleteimage']);
-		return;
-	}
-	if(isset($_REQUEST['iblesimport'])){
-		InstructionsIblesImport($_REQUEST['iblesimport']);
-		exit;
-	}
-	InstructionsDisplayCat();
 }
 function InstructionsCats(){
 	loadLanguage('Instructions');
@@ -107,8 +74,82 @@ function InstructionsCats(){
 	InstructionsDisplayCat();
 }
 function InstructionsMisc(){
+	global $user_info,$smcFunc;
 	switch(isset($_REQUEST['sa'])?$_REQUEST['sa']:''){
-		
+		case 'urlupload':
+		case 'fileupload':
+			header('Content-Type:application/json');
+			$img = false;
+			$msg = '';
+			$arg = false;
+			if($_REQUEST['sa'] == 'urlupload'){
+				if(isset($_REQUEST['url'])){
+					$arg = $_REQUEST['url'];
+				}else{
+					$msg = 'missing parameter';
+				}
+			}else{
+				if(isset($_FILES['files'])){
+					$arg = $_FILES['files'];
+				}else{
+					$msg = 'missing file!';
+				}
+			}
+			if(empty($msg)){
+				$msg = ($img = (new InstructionFile()))->upload($arg);
+			}
+			
+			$json = array(
+				'success' => empty($msg)
+			);
+			if(!$json['success']){
+				$json['upload-error'] = $msg;
+			}else{
+				$json['image'] = $img->getJSON(array('small','medium','large'));
+			}
+			echo json_encode($json);
+			exit;
+		case 'setimgtags':
+			header('Content-Type:application/json');
+			$img = new InstructionFile($_REQUEST['id']);
+			$msg = $img->isOwner()?$img->setTags($_REQUEST['tags']):'Permission denied';
+			echo json_encode(array(
+				'success' => empty($msg),
+				'msg' => $msg
+			));
+			exit;
+		case 'getimgtags':
+			header('Content-Type: application/json');
+			$request = $smcFunc['db_query']('','SELECT tags FROM {db_prefix}instructions_members WHERE member_id = {int:id}',array('id' => $user_info['id']));
+			$tags = array();
+			if($res = $smcFunc['db_fetch_assoc']($request)){
+				$tags = InstructionsGetSQLArray($res['tags']);
+			}
+			$smcFunc['db_free_result']($request);
+			echo json_encode(array(
+				'tags' => $tags
+			));
+			exit;
+		case 'getlibrary':
+			InstructionsGetLibrary($_REQUEST['lib']);
+			exit;
+		case 'deleteimage':
+			header('Content-Type: application/json');
+			$img = new InstructionFile($_REQUEST['id']);
+			$msg = $img->isOwner()?$img->delete():'Permission denied';
+			echo json_encode(array(
+				'success' => empty($msg),
+				'msg' => $msg
+			));
+			exit;
+		case 'getinstructable':
+			header('Content-Type: application/json');
+			$s = file_get_contents('http://www.instructables.com/json-api/showInstructable?id='.urlencode($_REQUEST['id']).'&t='.time());
+			if($s == ''){
+				echo '{"success":false}';
+			}
+			echo $s;
+			exit;
 	}
 }
 
@@ -156,48 +197,6 @@ class Instruction{
 		// we are cheating here 100%, all to save SQL queries!
 		return $modSettings['instructions_uploads_url'].'/'.$this->main_image_id.'/square.jpg';
 	}
-	protected function getImageObject($res){
-		global $modSettings;
-		
-		// get image URL sizes
-		$id = (int)$res['id'];
-		$imgdir = $modSettings['instructions_uploads_url']."/$id/";
-		$resizeTypes = explode(',',$res['resizeTypes']);
-		$urls = array(
-			'square' => $imgdir.'square.jpg',
-			'largesquare' => $imgdir.'largesquare.jpg',
-			'original' => $imgdir.'original.'.$res['extension']
-		);
-		if(in_array('small',$resizeTypes)){
-			$urls['small'] = $imgdir.'small.jpg';
-		}else{
-			$urls['small'] = $urls['original'];
-		}
-		
-		if(in_array('medium',$resizeTypes)){
-			$urls['medium'] = $imgdir.'medium.jpg';
-		}else{
-			$urls['medium'] = $urls['original'];
-		}
-		
-		if(in_array('large',$resizeTypes)){
-			$urls['large'] = $imgdir.'large.jpg';
-		}else{
-			$urls['large'] = $urls['original'];
-		}
-		
-		
-		$annotations = json_decode($res['annotations'],true);
-		foreach($annotations as &$a){
-			$a['body_parsed'] = parse_bbc(htmlentities($a['body']));
-		}
-		return array(
-			'urls' => $urls,
-			'id' => $id,
-			'annotations' => $annotations,
-			'name' => $res['name']
-		);
-	}
 	protected function getImages($ids){
 		global $smcFunc;
 		if(sizeof($ids) == 0 || !$ids){
@@ -207,7 +206,7 @@ class Instruction{
 		$a = array();
 		$request = $smcFunc['db_query']('','SELECT '.INSTRUCTIONS_IMAGES_FETCH_VARS.' FROM {db_prefix}instructions_images WHERE id IN ('.implode(',', array_map('intval', $ids)).') AND success=1',array());
 		while($res = $smcFunc['db_fetch_assoc']($request)){
-			$a[$res['id']] = $this->getImageObject($res);
+			$a[$res['id']] = new InstructionFile($res);
 		}
 		$smcFunc['db_free_result']($request);
 		return $a;
@@ -227,8 +226,8 @@ class Instruction{
 		
 		// time to build the cache map
 		$this->imageCacheMap = array();
-		foreach($this->imageCache as $i => $img){
-			$this->imageCacheMap[$img['id']] = $i;
+		foreach($this->imageCache as $img){
+			$this->imageCacheMap[$img->getId()] = $img;
 		}
 		
 		// time to call all the cache updaters!
@@ -240,7 +239,9 @@ class Instruction{
 		$a = array();
 		foreach($ids as $i){
 			if(isset($this->imageCacheMap[$i])){
-				$a[] = $this->imageCache[$this->imageCacheMap[$i]];
+				$a[] = $this->imageCacheMap[$i];
+			}else{
+				$a[] = new InstructionFile;
 			}
 		}
 		return $a;
@@ -256,6 +257,7 @@ class Instruction{
 		}
 		$step['body_parsed'] = parse_bbc(htmlentities($step['body']));
 		
+		$this->imageIdCache = array_merge($this->imageIdCache,$step['image_ids']);
 		
 		$step['full_parse'] = true;
 		
@@ -299,8 +301,7 @@ class Instruction{
 					),isset($_REQUEST['allsteps'])?'step'.$i:''),
 				'url_edit' => $this->getUrl('edit',array('step' => $i))
 			);
-			
-			$this->imageIdCache = array_merge($this->imageIdCache,InstructionsGetSQLArray($row['images']),array($row['main_image']));
+			$this->imageIdCache = array_merge($this->imageIdCache,array($row['main_image']));
 			
 			$this->imageCacheUpdater[] = function() use ($i){
 				$this->steps[$i]['main_image'] = $this->getImagesFromCache(array($this->steps[$i]['main_image_id']))[0];
@@ -414,9 +415,9 @@ class Instruction{
 		$this->preLoadSteps(); // make sure the initial pre-loading is there!
 		
 		$ids = array_unique($ids); // we only want to be looking at unique ids!
-		foreach($ids as $i => $var){
+		foreach($ids as $var){
 			if(isset($this->steps[$var]) && !$this->steps[$var]['full_parse']){
-				$unset = $this->fullParseStep($var);
+				$this->fullParseStep($var);
 			}
 		}
 		
@@ -659,6 +660,18 @@ class Instruction{
 		$smcFunc['db_query']('','UPDATE {db_prefix}instructions_members SET votes = {string:votes} WHERE member_id = {int:id}',array('id' => $user_info['id'],'votes' => json_encode($votes)));
 		redirectexit($this->getUrl());
 	}
+	public function data(){
+		header('Content-Type: application/json');
+		$json = array(
+			'name' => $this->name,
+			'id' => $this->dispId,
+			'steps' => $this->steps,
+			'success' => true
+		);
+		
+		echo json_encode($json);
+		exit;
+	}
 }
 class EditInstruction extends Instruction{
 	public function __construct($props){
@@ -880,7 +893,7 @@ class EditInstruction extends Instruction{
 			$post = str_replace('{NAME}',$this->name,$post);
 			$post = str_replace('{URL}',$this->url,$post);
 			
-			$post = str_replace('{IMG}',$this->main_image['urls']['medium'],$post);
+			$post = str_replace('{IMG}',$this->main_image->getUrl('medium'),$post);
 			
 			
 			$post = str_replace('{INTRO}',$this->steps[0]['body'],$post);
@@ -993,11 +1006,27 @@ class EditInstruction extends Instruction{
 		return $this->updateFirstStep();
 	}
 	public function saveNotes($noteid){
-		global $smcFunc;
-		if($noteid == -1){
+		global $smcFunc,$user_info;
+		$img = new InstructionFile($noteid);
+		$id = $img->getId();
+		if($id == -1){
 			$this->error = true;
 			$this->error_msg = 'No image note specified';
 			return $this;
+		}
+		if($user_info['id'] != $img->getOwner()){
+			$found = false;
+			foreach($this->steps as $s){
+				if(in_array($id,$s['image_ids'])){
+					$found = true;
+					break;
+				}
+			}
+			if(!$found){
+				$this->error = true;
+				$this->error_msg = 'Permission denied';
+				return $this;
+			}
 		}
 		if(!isset($_REQUEST['annotations'])){
 			$this->error = true;
@@ -1009,15 +1038,8 @@ class EditInstruction extends Instruction{
 			$this->error = true;
 			$this->error_msg = 'Invalid post body';
 		}
-		$newAnnotations = array();
-		foreach($json as $j){
-			if(array_is_of_pattern($j,array('x'=>0.0,'y'=>0.0,'w'=>0.0,'h'=>0.0,'body'=>'')) && $j['x'] < 1 && $j['y'] < 1 && $j['x'] >= 0 && $j['y'] >= 0 && $j['w'] > 0 && $j['h'] > 0){
-				$j['w'] = min($j['w'],1-$j['x']);
-				$j['h'] = min($j['h'],1-$j['y']);
-				$newAnnotations[] = $j;
-			}
-		}
-		$smcFunc['db_query']('','UPDATE {db_prefix}instructions_images SET annotations = {string:annotations} WHERE id={int:id}',array('annotations' => json_encode($newAnnotations),'id' => $noteid));
+		$img->setAnnotations($json);
+		
 		return $this;
 	}
 	public function data(){
@@ -1035,7 +1057,7 @@ class EditInstruction extends Instruction{
 		if(isset($_REQUEST['redirect'])){
 			redirectexit($url);
 		}
-		header('Content-Type:text/json');
+		header('Content-Type: application/json');
 		echo json_encode(array(
 			'success' => $this->id != -1 && $this->exists && !$this->error,
 			'new_instruction' => $this->createdNewInstruction,
@@ -1046,8 +1068,303 @@ class EditInstruction extends Instruction{
 		));
 		exit;
 	}
+	public function import($json){
+		global $smcFunc;
+		if(!$json){
+			$this->error = true;
+			$this->error_msg = 'Invalid data format';
+			return $this;
+		}
+		if(isset($_REQUEST['done'])){
+			$smcFunc['db_query']('','UPDATE {db_prefix}instructions_instructions SET status=0,import_data="" WHERE id = {int:id}',array('id' => $this->id));
+		}else{
+			$smcFunc['db_query']('','UPDATE {db_prefix}instructions_instructions SET status=-1,import_data={string:data} WHERE id = {int:id}',array('id' => $this->id,'data' => json_encode($json)));
+		}
+		return $this;
+	}
 }
 
+class InstructionFile{
+	private $id = -1;
+	private $name = '';
+	private $owner = -1;
+	private $urls = array(
+		'original' => ''
+	);
+	private $annotations = array();
+	private function getImageObject($res){
+		global $modSettings;
+		
+		// get image URL sizes
+		$this->id = (int)$res['id'];
+		$this->owner = (int)$res['owner'];
+		$imgdir = $modSettings['instructions_uploads_url'].'/'.$this->id.'/';
+		$resizeTypes = explode(',',$res['resizeTypes']);
+		$this->urls = array(
+			'square' => $imgdir.'square.jpg',
+			'largesquare' => $imgdir.'largesquare.jpg',
+			'original' => $imgdir.'original.'.$res['extension']
+		);
+		if(in_array('small',$resizeTypes)){
+			$this->urls['small'] = $imgdir.'small.jpg';
+		}
+		
+		if(in_array('medium',$resizeTypes)){
+			$this->urls['medium'] = $imgdir.'medium.jpg';
+		}
+		
+		if(in_array('large',$resizeTypes)){
+			$this->urls['large'] = $imgdir.'large.jpg';
+		}
+		
+		
+		$this->annotations = json_decode($res['annotations'],true);
+		foreach($this->annotations as &$a){
+			$a['body_parsed'] = parse_bbc(htmlentities($a['body']));
+		}
+		$this->name = $res['name'];
+	}
+	public function __construct($res = NULL){
+		global $smcFunc;
+		if($res && is_array($res)){
+			$this->getImageObject($res);
+		}elseif(is_int($res) || (is_string($res) && (int)$res == $res)){
+			$request = $smcFunc['db_query']('','SELECT '.INSTRUCTIONS_IMAGES_FETCH_VARS.' FROM {db_prefix}instructions_images WHERE id={int:id} AND success=1',array('id' => $res));
+			while($res = $smcFunc['db_fetch_assoc']($request)){
+				$this->getImageObject($res);
+			}
+			$smcFunc['db_free_result']($request);
+		}
+	}
+	public function getAnnotations(){
+		return $this->annotations;
+	}
+	public function setAnnotations($json = array()){
+		global $smcFunc;
+		$newAnnotations = array();
+		foreach($json as $j){
+			if(array_is_of_pattern($j,array('x'=>0.0,'y'=>0.0,'w'=>0.0,'h'=>0.0,'body'=>'')) && $j['x'] < 1 && $j['y'] < 1 && $j['x'] >= 0 && $j['y'] >= 0 && $j['w'] > 0 && $j['h'] > 0){
+				$j['w'] = min($j['w'],1-$j['x']);
+				$j['h'] = min($j['h'],1-$j['y']);
+				$newAnnotations[] = $j;
+			}
+		}
+		$smcFunc['db_query']('','UPDATE {db_prefix}instructions_images SET annotations = {string:annotations} WHERE id={int:id}',array('annotations' => json_encode($newAnnotations),'id' => $this->id));
+		$this->annotations = $newAnnotations;
+	}
+	public function getUrl($type = 'original'){
+		if(isset($this->urls[$type])){
+			return $this->urls[$type];
+		}
+		return $this->urls['original'];
+	}
+	public function getId(){
+		return $this->id;
+	}
+	public function getJSON($extra_urls = array()){
+		$urls = $this->urls;
+		foreach($extra_urls as $u){
+			$urls[$u] = $this->getUrl($u);
+		}
+		return array(
+			'urls' => $urls,
+			'id' => $this->id,
+			'annotations' => $this->annotations,
+			'name' => $this->name
+		);
+	}
+	public function getOwner(){
+		return $this->owner;
+	}
+	public function isOwner(){
+		global $user_info;
+		return $this->owner == $user_info['id'];
+	}
+	private function upload_internal($img_upload,$move = false){
+		global $user_info, $smcFunc, $modSettings;
+		if($this->id != -1){
+			return 'Already an image!';
+		}
+		if(!allowedTo('inst_can_edit_any') && !allowedTo('inst_can_edit_own')){
+			return 'Permission denied';
+		}
+		if(!$img_upload || !isset($img_upload['tmp_name']) || $img_upload['error'] !== 0){
+			return 'Missing file';
+		}
+		if(!preg_match('#([ !\#$%\'()+-.\d;=@-\[\]-{}~]+)\.(\w+)$#',$img_upload['name'],$name)){
+			return 'invalid filename';
+		}
+		$extension = strtolower($name[2]);
+		if(!in_array($extension,array('png','gif','jpg','jpeg'))){
+			return 'invalid file type! Allowed types: png, gif, jpg, jpeg';
+		}
+		if(!$img = @imagecreatefromstring(file_get_contents($img_upload['tmp_name']))){
+			return 'uploaded file is not an image!';
+		}
+		$smcFunc['db_insert']('insert','{db_prefix}instructions_images',
+			array(
+				'owner' => 'int', 'extension' => 'string', 'name' => 'string'
+			),
+			array(
+				$user_info['id'], $extension, $img_upload['name']
+			),
+			array('owner','extension','name')
+		);
+		$id = (int)$smcFunc['db_insert_id']('{db_prefix}instructions_images','id');
+		
+		mkdir($modSettings['instructions_uploads_path']."/$id");
+		$imgFileName = $modSettings['instructions_uploads_path']."/$id/original.$extension";
+		if(!(move_uploaded_file($img_upload['tmp_name'],$imgFileName) || ($move && rename($img_upload['tmp_name'],$imgFileName)))){
+			return 'Could not move uploaded file';
+		}
+		$resizeTypes = array();
+		list($width,$height) = @getimagesize($imgFileName);
+		if($height > 1500){
+			$img2 = imagecreatetruecolor(($width/$height)*1500,1500);
+			imagecopyresized($img2,$img,0,0,0,0,($width/$height)*1500,1500,$width,$height);
+			if(imagejpeg($img2,$modSettings['instructions_uploads_path']."/$id/large.jpg")){
+				$resizeTypes[] = 'large';
+			}
+			imagedestroy($img2);
+		}
+		if($height > 600){
+			$img2 = imagecreatetruecolor(($width/$height)*600,600);
+			imagecopyresized($img2,$img,0,0,0,0,($width/$height)*600,600,$width,$height);
+			if(imagejpeg($img2,$modSettings['instructions_uploads_path']."/$id/medium.jpg")){
+				$resizeTypes[] = 'medium';
+			}
+			imagedestroy($img2);
+		}
+		if($height > 150){
+			$img2 = imagecreatetruecolor(($width/$height)*150,150);
+			imagecopyresized($img2,$img,0,0,0,0,($width/$height)*150,150,$width,$height);
+			if(imagejpeg($img2,$modSettings['instructions_uploads_path']."/$id/small.jpg")){
+				$resizeTypes[] = 'small';
+			}
+			imagedestroy($img2);
+		}
+		
+		$img2 = imagecreatetruecolor(100,100);
+		$srcx = 0;
+		$srcy = 0;
+		$srcw = $width;
+		$srch = $height;
+		if($width > $height){
+			$srcw = $srch;
+			$srcx = ($width - $height) / 2;
+		}else{
+			$srch = $srcw;
+			$srcy = ($height - $width) / 2;
+		}
+		imagecopyresized($img2,$img,0,0,$srcx,$srcy,100,100,$srcw,$srch);
+		if(imagejpeg($img2,$modSettings['instructions_uploads_path']."/$id/square.jpg")){
+			$resizeTypes[] = 'square';
+		}
+		imagedestroy($img2);
+		
+		$img2 = imagecreatetruecolor(500,500);
+		imagecopyresized($img2,$img,0,0,$srcx,$srcy,500,500,$srcw,$srch);
+		if(imagejpeg($img2,$modSettings['instructions_uploads_path']."/$id/largesquare.jpg")){
+			$resizeTypes[] = 'largesquare';
+		}
+		imagedestroy($img2);
+		imagedestroy($img);
+		$smcFunc['db_query']('','UPDATE {db_prefix}instructions_images SET success=1,resizeTypes={string:types} WHERE id={int:id}',array('types' => implode(',',$resizeTypes),'id' => $id));
+		$this->getImageObject(array(
+			'annotations' => false,
+			'id' => (int)$id,
+			'urls' => implode(',',$resizeTypes),
+			'name' => $img_upload['name'],
+			'owner' => $user_info['id'],
+			'extension' => $extension
+		));
+		return '';
+	}
+	public function upload($file){
+		if(is_array($file)){
+			return $this->upload_internal($file);
+		}
+		global $sourcedir,$modSettings;
+		include_once($sourcedir . '/Subs-Package.php');
+		if(empty($_REQUEST['url'])){
+			return 'missing required fields';
+		}
+		$url = $_REQUEST['url'];
+		$contents = fetch_web_data($url);
+		
+		$tmp_filename = $modSettings['instructions_uploads_path'] . '/' . 'upload_tmp_' . $user_info['id'] . rand() . time();
+		if (!$contents || !($tmpImg = fopen($tmp_filename, 'wb'))){
+			return 'Could not download file';
+		}
+		fwrite($tmpImg, $contents);
+		fclose($tmpImg);
+		$url = parse_url($url);
+		$name = explode('?',explode('#',trim($url['path']))[0])[0];
+		$name = explode('/',$name);
+		$name = $name[sizeof($name) - 1];
+		
+		$msg = $this->upload_internal(array(
+			'tmp_name' => $tmp_filename,
+			'error' => 0,
+			'name' => $name
+		),true);
+		@unlink($tmp_filename);
+		return $msg;
+	}
+	public function setTags($tags){
+		global $smcFunc;
+		if($this->id == -1){
+			return 'image not found';
+		}
+		if(!is_array($tags)){
+			if(!preg_match('/^[a-zA-Z0-9- _:.#]+(,[a-zA-Z0-9- _:.#]+)*,?$/',$tags) || $tags ===''){
+				return 'invalid format';
+			}
+			$tags = explode(',',$tags);
+		}
+		$tags = array_filter($tags); // remove empty elements
+		$tags = array_unique($tags); // remove duplicates
+		$smcFunc['db_query']('','UPDATE {db_prefix}instructions_images SET tags = {string:tags} WHERE id={int:id}',array('tags' => InstructionsMakeSQLArray($tags),'id' => $this->id));
+		
+		// now update the cache for which tags one has
+		$request = $smcFunc['db_query']('','SELECT tags FROM {db_prefix}instructions_members WHERE member_id = {int:id}',array('id' => $this->owner));
+		if($res = $smcFunc['db_fetch_assoc']($request)){
+			$smcFunc['db_free_result']($request);
+			$tags = array_merge($tags,InstructionsGetSQLArray($res['tags']));
+			$tags = array_unique($tags);
+			$smcFunc['db_query']('','UPDATE {db_prefix}instructions_members SET tags = {string:tags} WHERE member_id={int:id}',array('tags' => InstructionsMakeSQLArray($tags),'id' => $this->owner));
+		}else{
+			$smcFunc['db_free_result']($request);
+			$smcFunc['db_insert']('insert','{db_prefix}instructions_members',
+				array(
+					'member_id' => 'int', 'tags' => 'string'
+				),
+				array(
+					$this->owner, InstructionsMakeSQLArray($tags)
+				),
+				array('member_id','tags')
+			);
+		}
+		
+		return '';
+	}
+	public function delete(){
+		global $smcFunc,$modSettings;
+		if($this->id == -1){
+			return 'no such image';
+		}
+		foreach(glob($modSettings['instructions_uploads_path'].'/'.$this->id.'/*') as $f){
+			if(!unlink($f)){
+				return 'Could not remove image';
+			}
+		}
+		if(!rmdir($modSettings['instructions_uploads_path'].'/'.$this->id)){
+			return 'Could not delete folder';
+		}
+		$smcFunc['db_query']('','UPDATE {db_prefix}instructions_images SET success=-1 WHERE id = {int:imgid}',array('imgid' => $this->id));
+		return '';
+	}
+}
 
 function InstructionsGetPublishCats_Recursion($node){
 	$children = array();
@@ -1166,6 +1483,7 @@ function InstructionsGetInstructions($where,$vars,$offset){
 		'offset' => $offset
 	);
 }
+
 
 function InstructionsGetRootCatName(){
 	global $modSettings, $smcFunc;
@@ -1295,153 +1613,6 @@ function InstructionsLoadProfile($member_id){
 	$context['instructions']['caturl'] = $scripturl.'?action=profile;u='.$member_id.($context['instructions']['offset']>0?';start='.$context['instructions']['offset']:'');
 }
 
-function InstructionsUrlUpload(){
-	global $context, $modSettings, $scripturl, $txt, $settings;
-	global $user_info, $smcFunc, $board, $sourcedir;
-	include_once($sourcedir . '/Subs-Package.php');
-	header('Content-Type:application/json');
-	if(!allowedTo('inst_can_edit_any') && !allowedTo('inst_can_edit_own')){
-		die('{"success":false,"msg":"permission denied"}');
-	}
-	if(empty($_REQUEST['url'])){
-		die('{"success":false,"msg":"missing required fields"}');
-	}
-	$url = parse_url($_REQUEST['url']);
-	$contents = fetch_web_data('http://' . $url['host'] . (empty($url['port']) ? '' : ':' . $url['port']) . str_replace(' ', '%20', trim($url['path'])));
-	
-	$tmp_filename = $modSettings['instructions_uploads_path'] . '/' . 'upload_tmp_' . $user_info['id'] . rand() . time();
-	if ($contents != false && $tmpImg = fopen($tmp_filename, 'wb')){
-		fwrite($tmpImg, $contents);
-		fclose($tmpImg);
-		$name = explode('?',explode('#',trim($url['path']))[0])[0];
-		$name = explode('/',$name);
-		$name = $name[sizeof($name) - 1];
-		$_FILES['files'] = array(
-			'tmp_name' => $tmp_filename,
-			'error' => 0,
-			'name' => $name
-		);
-		InstructionsUpload(true);
-		@unlink($tmp_filename);
-		exit;
-	}
-	die('{"success":false,"msg":"Could not download file"}');
-}
-
-function InstructionsUpload($urlupload = false){
-	global $context, $modSettings, $scripturl, $txt, $settings;
-	global $user_info, $smcFunc, $board;
-	header('Content-Type:application/json');
-	if(!allowedTo('inst_can_edit_any') && !allowedTo('inst_can_edit_own')){
-		echo '{"success":false,"upload-error":"permission denied"}';
-		$urlupload or die();
-		return false;
-	}
-	if(!isset($_FILES['files']) || !isset($_FILES['files']['tmp_name']) || $_FILES['files']['error'] !== 0){
-		echo '{"success":false,"upload-error":"missing file"}';
-		$urlupload or die();
-		return false;
-	}
-	if(!preg_match('#([ !\#$%\'()+-.\d;=@-\[\]-{}~]+)\.(\w+)$#',$_FILES['files']['name'],$name)){
-		echo '{"success":false,"upload-error":"invalid filename"}';
-		$urlupload or die();
-		return false;
-	}
-	$extension = strtolower($name[2]);
-	if(!in_array($extension,array('png','gif','jpg','jpeg'))){
-		echo '{"success":false,"upload-error":"invalid file type! Allowed types: png, gif, jpg, jpeg"}';
-		$urlupload or die();
-		return false;
-	}
-	if(!$img = @imagecreatefromstring(file_get_contents($_FILES['files']['tmp_name']))){
-		echo '{"success":false,"upload-error":"uploaded file is not an image!"}';
-		$urlupload or die();
-		return false;
-	}
-	$smcFunc['db_insert']('insert','{db_prefix}instructions_images',
-		array(
-			'owner' => 'int', 'extension' => 'string', 'name' => 'string'
-		),
-		array(
-			$user_info['id'], $extension, $_FILES['files']['name']
-		),
-		array('owner','extension','name')
-	);
-	$id = (int)$smcFunc['db_insert_id']('{db_prefix}instructions_images','id');
-	
-	mkdir($modSettings['instructions_uploads_path']."/$id");
-	$imgFileName = $modSettings['instructions_uploads_path']."/$id/original.$extension";
-	if(!(move_uploaded_file($_FILES['files']['tmp_name'],$imgFileName) || ($urlupload && rename($_FILES['files']['tmp_name'],$imgFileName)))){
-		echo '{"success":false,"upload-error":"Could not move uploaded file!"}';
-		$urlupload or die();
-		return false;
-	}
-	$resizeTypes = array();
-	list($width,$height) = @getimagesize($imgFileName);
-	if($height > 1500){
-		$img2 = imagecreatetruecolor(($width/$height)*1500,1500);
-		imagecopyresized($img2,$img,0,0,0,0,($width/$height)*1500,1500,$width,$height);
-		if(imagejpeg($img2,$modSettings['instructions_uploads_path']."/$id/large.jpg")){
-			$resizeTypes[] = 'large';
-		}
-		imagedestroy($img2);
-	}
-	if($height > 600){
-		$img2 = imagecreatetruecolor(($width/$height)*600,600);
-		imagecopyresized($img2,$img,0,0,0,0,($width/$height)*600,600,$width,$height);
-		if(imagejpeg($img2,$modSettings['instructions_uploads_path']."/$id/medium.jpg")){
-			$resizeTypes[] = 'medium';
-		}
-		imagedestroy($img2);
-	}
-	if($height > 150){
-		$img2 = imagecreatetruecolor(($width/$height)*150,150);
-		imagecopyresized($img2,$img,0,0,0,0,($width/$height)*150,150,$width,$height);
-		if(imagejpeg($img2,$modSettings['instructions_uploads_path']."/$id/small.jpg")){
-			$resizeTypes[] = 'small';
-		}
-		imagedestroy($img2);
-	}
-	
-	$img2 = imagecreatetruecolor(100,100);
-	$srcx = 0;
-	$srcy = 0;
-	$srcw = $width;
-	$srch = $height;
-	if($width > $height){
-		$srcw = $srch;
-		$srcx = ($width - $height) / 2;
-	}else{
-		$srch = $srcw;
-		$srcy = ($height - $width) / 2;
-	}
-	imagecopyresized($img2,$img,0,0,$srcx,$srcy,100,100,$srcw,$srch);
-	if(imagejpeg($img2,$modSettings['instructions_uploads_path']."/$id/square.jpg")){
-		$resizeTypes[] = 'square';
-	}
-	imagedestroy($img2);
-	
-	$img2 = imagecreatetruecolor(500,500);
-	imagecopyresized($img2,$img,0,0,$srcx,$srcy,500,500,$srcw,$srch);
-	if(imagejpeg($img2,$modSettings['instructions_uploads_path']."/$id/largesquare.jpg")){
-		$resizeTypes[] = 'largesquare';
-	}
-	imagedestroy($img2);
-	imagedestroy($img);
-	$smcFunc['db_query']('','UPDATE {db_prefix}instructions_images SET success=1,resizeTypes={string:types} WHERE id={int:id}',array('types' => implode(',',$resizeTypes),'id' => $id));
-	echo json_encode(array(
-		'success' => true,
-		'image' => array(
-			'annotations' => false,
-			'id' => (int)$id,
-			'urls' => InstructionsGetImageUrls($id,$resizeTypes,$extension),
-			'name' => $_FILES['files']['name']
-		)
-	));
-	$urlupload or die();
-	return true;
-}
-
 function array_is_of_pattern($array,$pattern){
 	if(!is_array($array)){
 		return false;
@@ -1463,10 +1634,10 @@ function InstructionsGetLibrary($tag = -1){
 	}else{
 		$tag = '%['.$tag.']%';
 	}
-	$request = $smcFunc['db_query']('','SELECT id,annotations,extension,resizeTypes,name FROM {db_prefix}instructions_images WHERE owner = {int:member_id} AND tags LIKE {string:tag} AND success=1 ORDER BY id DESC LIMIT {int:offset},30',array('member_id' => $user_info['id'],'tag'=>$tag,'offset'=>$offset));
+	$request = $smcFunc['db_query']('','SELECT '.INSTRUCTIONS_IMAGES_FETCH_VARS.' FROM {db_prefix}instructions_images WHERE owner = {int:member_id} AND tags LIKE {string:tag} AND success=1 ORDER BY id DESC LIMIT {int:offset},30',array('member_id' => $user_info['id'],'tag'=>$tag,'offset'=>$offset));
 	$images = array();
 	while($res = $smcFunc['db_fetch_assoc']($request)){
-		$images[] = InstructionsGetImageObject($res);
+		$images[] = (new InstructionFile($res))->getJSON(array('small','medium','large'));
 	}
 	$smcFunc['db_free_result']($request);
 	
@@ -1488,76 +1659,5 @@ function InstructionsGetLibrary($tag = -1){
 	exit;
 }
 
-function InstructionsDeleteImage($imgid){
-	global $context, $modSettings, $scripturl, $txt, $settings;
-	global $user_info, $smcFunc, $board;
-	
-	header('Content-Type: text/json');
-	if($imgid != (int)$imgid){
-		die('{"success":false,"msg":"invalid image id"}');
-	}
-	$imgid = (int)$imgid;
-	
-	$request = $smcFunc['db_query']('','SELECT owner,id FROM {db_prefix}instructions_images WHERE id = {int:imgid} AND success=1',array('imgid' => $imgid));
-	$found = false;
-	if(($res = $smcFunc['db_fetch_assoc']($request)) && (allowedTo('inst_can_delete_any') || ($user_info['id'] == $res['owner'] && allowedTo('inst_can_edit_own') /* image deleting is less heavy so edit is sufficient */))){
-		$found = true;
-		$imgid = (int)$res['id'];
-	}
-	$smcFunc['db_free_result']($request);
-	
-	if(!$found){
-		die('{"success":false,"msg":"image not found or permission denied"}');
-	}
-	foreach(glob($modSettings['instructions_uploads_path'].'/'.$imgid.'/*') as $f){
-		if(!unlink($f)){
-			die('{"success":false,"msg":"Could not remove image"}');
-		}
-	}
-	
-	if(!rmdir($modSettings['instructions_uploads_path'].'/'.$imgid)){
-		die('{"success":false,"msg":"could not delete folder"}');
-	}
-	$smcFunc['db_query']('','UPDATE {db_prefix}instructions_images SET success=-1 WHERE id = {int:imgid}',array('imgid' => $imgid));
-	echo '{"success":true}';
-	exit;
-}
-
-function InstructionsIblesImport($id){
-	global $context, $modSettings, $scripturl, $txt, $settings;
-	global $user_info, $smcFunc, $board;
-	
-	header('Content-Type: text/json');
-	
-	$request = $smcFunc['db_query']('','SELECT id,owner,name,url,status, publish_date FROM {db_prefix}instructions_instructions WHERE url = {string:id} OR id = {string:id}',array('id' => $id));
-	if($res = $smcFunc['db_fetch_assoc']($request)){
-		$id = (int)$res['id'];
-	}else{
-		$id = -1;
-	}
-	$smcFunc['db_free_result']($request);
-	if($id == -1){
-		die('{"success":false,"msg":"instruction not found"}');
-	}
-	$canEdit = allowedTo('inst_can_edit_any') || ($user_info['id'] == $res['owner'] && allowedTo('inst_can_edit_own'));
-	
-	if(!$canEdit){
-		die('{"success":false,"msg":"permission denied"}');
-	}
-	if(empty($_REQUEST['data'])){
-		die('{"success":false,"msg":"missing required field"}');
-	}
-	if(!($json = json_decode($_REQUEST['data']))){
-		die('{"success":false,"msg":"invalid data format"}');
-	}
-	
-	if(isset($_REQUEST['done'])){
-		$smcFunc['db_query']('','UPDATE {db_prefix}instructions_instructions SET status=0,import_data="" WHERE id = {int:id}',array('id' => $id));
-	}else{
-		$smcFunc['db_query']('','UPDATE {db_prefix}instructions_instructions SET status=-1,import_data={string:data} WHERE id = {int:id}',array('id' => $id,'data' => json_encode($json)));
-	}
-	echo '{"success":true}';
-	exit;
-}
 
 ?>
