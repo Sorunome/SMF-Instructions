@@ -96,7 +96,8 @@ function InstructionsMisc(){
 				}
 			}
 			if(empty($msg)){
-				$msg = ($img = (new InstructionFile()))->upload($arg);
+				$img = new InstructionFile();
+				$msg = $img->upload($arg);
 			}
 			
 			$json = array(
@@ -149,6 +150,13 @@ function InstructionsMisc(){
 				echo '{"success":false}';
 			}
 			echo $s;
+			exit;
+		case 'topicmsg':
+			header('Content-Type: application/json');
+			echo json_encode(array(
+				'success' => true,
+				'topicmsg' => InstructionGetTopicMsg($_REQUEST['cat'])
+			));
 			exit;
 	}
 }
@@ -469,7 +477,7 @@ class Instruction{
 		foreach($board_info['parent_boards'] as $key => $board){
 			$path[$key] = $board['name'];
 		}
-		$path = array_reverse($path,true);
+		
 		$path[$this->category] = $board_info['name'];
 		$board = 0;
 		loadBoard();
@@ -492,13 +500,17 @@ class Instruction{
 		return $this;
 	}
 	public function view(){
-		global $context,$settings;
+		global $context,$settings,$smcFunc;
 		$context['html_headers'] .= $this->html_headers;
 		$context['page_title'] = $this->name;
 		$context['sub_template'] = 'view';
 		if(!$this->exists){
 			fatal_lang_error('instruction_not_found',false);
 		}
+		if(empty($_SESSION['instructions_last_id']) || $_SESSION['instructions_last_id'] != $this->id){
+			$smcFunc['db_query']('','UPDATE {db_prefix}instructions_instructions SET views = views + 1 WHERE id = {int:id}',array('id' => $this->id));
+		}
+		$_SESSION['instructions_last_id'] = $this->id;
 		loadMemberData((int)$this->owner['id_member']); // load some data about the author
 		loadMemberContext((int)$this->owner['id_member']);
 		return $this->mustView()->loadLinkTree()->get();
@@ -888,6 +900,7 @@ class EditInstruction extends Instruction{
 		if($this->topic_id == -1 && !empty($_REQUEST['post'])){
 			// time to post a new topic!
 			include_once($sourcedir.'/Subs-Post.php');
+			$this->loadStep(0);
 			$this->loadImagesInCache();
 			$post = trim($_REQUEST['post']);
 			$post = str_replace('{NAME}',$this->name,$post);
@@ -1404,6 +1417,29 @@ function InstructionsGetPublishCats(){
 	));
 }
 
+function InstructionGetTopicMsg($cat_id){
+	global $modSettings,$board_info,$board;
+	if($cat_id == -1 || $cat_id == 0){
+		$board = 0; // reset the board...
+		loadBoard();
+		return 'Please select a category!';
+	}
+	$base_cat = (isset($modSettings['instructions_category'])?(int)$modSettings['instructions_category']:1);
+	$cat = (int)$cat;
+	
+	$board = $cat_id;
+	loadBoard();
+	
+	if(!$board_info || $board_info['cat']['id'] != $base_cat){
+		return InstructionGetTopicMsg(-1);
+	}
+	if(empty($modSettings['instructions_default_topic_'.$cat_id])){
+		return InstructionGetTopicMsg($board_info['parent']);
+	}
+	$board = 0;
+	loadBoard();
+	return $modSettings['instructions_default_topic_'.$cat_id];
+}
 
 
 function InstructionsMakeSQLArray($a){
@@ -1511,9 +1547,7 @@ function InstructionsDisplayCat(){
 	if($cat_id != (int)$cat_id){
 		$cat_id = -1;
 	}
-	$request = $smcFunc['db_query']('','SELECT name FROM {db_prefix}categories WHERE id_cat={int:id}',array('id' => $base_cat));
-	$res = $smcFunc['db_fetch_assoc']($request);
-	$smcFunc['db_free_result']($request);
+	
 	$path = array(
 		-1 => InstructionsGetRootCatName()
 	);
@@ -1535,7 +1569,7 @@ function InstructionsDisplayCat(){
 		$board = $cat_id;
 		loadBoard();
 		
-		if(!$board_info ||$board_info['cat']['id'] != $base_cat){
+		if(!$board_info || $board_info['cat']['id'] != $base_cat){
 			$_REQUEST['id'] = -1;
 			InstructionsDisplayCat();
 			return;
@@ -1543,7 +1577,6 @@ function InstructionsDisplayCat(){
 		foreach($board_info['parent_boards'] as $key => $board){
 			$path[$key] = $board['name'];
 		}
-		$path = array_reverse($path,true); // true to also preserve the index
 		
 		$context['instruction_cat'] = array(
 			'name' => $board_info['name'],

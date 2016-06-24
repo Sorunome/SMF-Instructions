@@ -367,10 +367,12 @@ function instruction_edit_initImport(){
 			alert('You can only import step by step instructables!');
 			return;
 		}
-		/*if(ible.author.url.indexOf(smf_scripturl.split('/index.php')[0])!==0){
+		
+		if(ible.author.url.indexOf($('#button_profile > a').attr('href'))!==0){
 			alert('Please set your homepage URL on instructables temporarily to your forum profile to prove that you own this instruction!');
 			return;
-		}*/
+		}
+		
 		if(!confirm('Continue with import?\nInstructable to import: '+ible.title+'\nImported instructabl will '+(replace?'replace':'be added to')+' the current instruction\nThis can take some time, just leave the page open!')){
 			return;
 		}
@@ -708,6 +710,11 @@ function instruction_edit_buildEditor(){
 		}else{
 			$(this).addClass('cant');
 		}
+		$.getJSON(smf_scripturl+'?action=instructions_misc;sa=topicmsg;cat='+this.value,function(data){
+			if(data.success){
+				$('#instructions_publish textarea').val(data.topicmsg);
+			}
+		});
 	}).trigger('change');
 	$('#instructions_publish_real').click(function(e){
 		e.preventDefault();

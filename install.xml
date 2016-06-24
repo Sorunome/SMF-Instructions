@@ -3,8 +3,6 @@
 <modification xmlns="http://www.simplemachines.org/xml/modification" xmlns:smf="http://www.simplemachines.org/">
 	<id>Sorunome:instructions</id>
 	<version>0.1</version>
-
-	
 	
 	<file name="$sourcedir/Profile-View.php">
 		<operation>

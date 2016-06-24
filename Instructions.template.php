@@ -194,7 +194,7 @@ function template_edit(){
 	}
 	echo '	</select><br>
 			',$txt['inst_publish_post'],'<br>
-			<textarea>',htmlspecialchars($modSettings['instructions_default_topic']),'</textarea><br>
+			<textarea>Please select a category!</textarea><br>
 			<button class="button_submit" id="instructions_publish_real">',$txt['inst_publish_go'],'</button>
 		</div>
 	</div>';
