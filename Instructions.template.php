@@ -11,7 +11,7 @@ function getInstructionsTable($inst){
 		return;
 	}
 	echo $txt['pages'].': '.$inst['page_index'].'
-	<table class="table_grid" cellspacing="0" width="100%">
+	<table class="table_grid instruction_table" cellspacing="0" width="100%">
 		<thead><tr class="catbg">
 			<th class="first_th" width="100px"></th>
 			<th scope="col">'.instructionMakeSortLink($inst['caturl'],'name','Name').'

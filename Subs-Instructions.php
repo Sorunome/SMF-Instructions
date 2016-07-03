@@ -39,7 +39,7 @@ function loadInstructionsActions_hook(&$actionArray){
 	));
 }
 function loadInstructionsMenu_hook(&$buttons){
-	global $txt;
+	global $txt,$scripturl;
 	$buttons['instructions'] = array(
 		'title' => $txt['instructions'],
 		'href' => $scripturl . '?action=instructions_cat',
