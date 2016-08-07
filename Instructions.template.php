@@ -95,6 +95,8 @@ function template_view(){
 		'.($instr->topic_id!=-1?'<li>→ <a href="index.php?topic='.$instr->topic_id.'.0;topscreen">Discuss</a></li>':'').'
 		<li>→ Rating: +'.$instr->upvotes.'/-'.$instr->downvotes.(allowedTo('karma_edit')?' <a href="'.$instr->getUrl('upvote').'">[upvote]</a> <a href="'.$instr->getUrl('downvote').'">[downvote]</a>':'').'
 		'.($instr->publish_date!=0?'<li>→ Published on '.timeformat($instr->publish_date).'</li>':'').'
+		<li>→ <a href="'.htmlspecialchars($instr->getUrl('',array('allsteps'))).'">View all steps</a></li>
+		<li>→ <a href="'.htmlspecialchars($instr->getUrl('pdf')).'">Download PDF</a></li>
 	</ul>
 	',$stepnav,'
 	<div id="instruction_bigimage" class="instructions_overlay"><div><img></img><div id="instruction_big_annotations"></div><span class="close">',$txt['inst_close'],'</span><span class="left"></span><span class="right"></span></div></div>
@@ -318,6 +320,387 @@ function getCatList($c,$s = ''){
 		$a = array_merge($a,getCatList($child,$s==''?'=>':'=='.$s));
 	}
 	return $a;
+}
+
+function template_instruction_pdf(){
+	global $instr,$sourcedir,$boarddir,$txt;
+	if(!class_exists('FPDF')){
+		require($sourcedir.'/fpdf.php');
+	}
+	class PDF extends FPDF {
+		private $bbc = array(
+			'img' => array(
+				'use' => false,
+				'widht' => 0,
+				'height' => 0
+			),
+			'youtube' => false,
+			'b' => 0,
+			'i' => 0,
+			'u' => 0,
+			'href' => '',
+			'lineheight' => 5,
+			'fontlist' => array('arial', 'times', 'courier', 'helvetica', 'symbol'),
+			'issetfont' => false,
+			'issetcolor' => false
+		);
+		public function Header(){
+			global $boarddir;
+			$this->image($boarddir.'/red_connector.png',6,6,10);
+			$this->setFont('Arial','B',20);
+			$this->SetDrawColor(0);
+			$this->SetLineWidth(0.2);
+			$this->SetTextColor(0xAC,0x3C,0x2E);
+			$this->Cell(8);
+			$this->Cell(0,4,'Knexflux',0,0,'',false,'https://knexflux.net');
+			$this->SetXY(6,20);
+			$this->Cell($this->DefPageSize[0] - 12,0,'','T');
+			$this->SetXY($this->lMargin,26);
+		}
+		public function Footer(){
+			$this->SetY(-5);
+			//$this->SetX(0);
+			$this->SetFont('Arial','I',9);
+			$this->SetTextColor(0x77);
+			$this->Cell(0,0,'- '.$this->PageNo().'/{nb} -',0,0,'C');
+		}
+		public function getPageHeight(){
+			return $this->DefPageSize[1];
+		}
+		public function getRenderWidth(){
+			return $this->DefPageSize[0] - $this->lMargin - $this->rMargin;
+		}
+		
+		public function preLoadImage($file,$type = ''){
+			if(isset($this->images[$file])){
+				return;
+			}
+			if($type == ''){
+				$pos = strrpos($file,'.');
+				if(!$pos){
+					$this->Error('Image file has no extension and no type was specified: '.$file);
+				}
+				$type = substr($file,$pos+1);
+			}
+			$type = strtolower($type);
+			if($type == 'jpeg'){
+				$type = 'jpg';
+			}
+			$mtd = '_parse'.$type;
+			if(!method_exists($this,$mtd)){
+				$this->Error('Unsupported image type: '.$type);
+			}
+			$info = $this->$mtd($file);
+			$info['i'] = count($this->images)+1;
+			$this->images[$file] = $info;
+		}
+		private function px2mm($px){
+			return $px*25.4/100;
+		}
+		private function setBBCLineHeight($h){
+			if($h > $this->bbc['lineheight']){
+				$this->bbc['lineheight'] = $h;
+			}
+		}
+		public function WriteBBC($bbc){
+			//HTML parser
+			//$html=strip_tags($html,"<b><u><i><a><img><p><br><strong><em><font><tr><blockquote>"); //supprime tous les tags sauf ceux reconnus
+			
+			$this->SetFont('Arial','',10);
+			$this->SetTextColor(0);
+			$this->bbc['lineheight'] = 5;
+			
+			$bbc = str_replace("\n",'[br]',$bbc);
+			$a = preg_split('/\[([^\]]+)\]/U',$bbc,-1,PREG_SPLIT_DELIM_CAPTURE); //éclate la chaîne avec les balises
+			foreach($a as $i=>$e){
+				if($i%2==0){
+					//Text
+					if($this->bbc['href']){
+						$this->PutLink($this->bbc['href'],$e);
+					}else if($this->bbc['img']['use']){
+						$this->Image($e, $this->GetX(), $this->GetY(), $this->px2mm($this->bbc['img']['width']), $this->px2mm($this->bbc['img']['height']));
+						$dh = $this->bbc['img']['height'];
+						if($dh == 0){
+							$dh = $this->getImgHeight($e);
+							if($this->bbc['img']['width'] != 0){
+								$dh *= $this->bbc['img']['width']/$this->getImgWidth($e);
+							}
+						}
+						$dh = $this->px2mm($dh);
+						$this->setBBCLineHeight($dh);
+					}else if($this->bbc['youtube']){
+						$this->Cell(50,30,'Youtube Video',1,0,'C',0,'https://www.youtube.com/watch?v='.$e);
+						$this->setBBCLineHeight(30);
+					}else{
+						$this->Write($this->bbc['lineheight'],stripslashes($e));
+					}
+				}else{
+					//Tag
+					if($e[0]=='/')
+						$this->CloseTag(strtolower(substr($e,1)));
+					else{
+						//Extract attributes
+						$a2 = explode(' ',$e);
+						$tag = strtolower(explode('=',$a2[0])[0]);
+						
+						$attr=array();
+						foreach($a2 as $v){
+							if(preg_match('/([^=]*)=(.*)/',$v,$a3))
+								$attr[strtolower($a3[1])]=$a3[2];
+						}
+						$this->OpenTag($tag,$attr);
+					}
+				}
+			}
+			$this->Ln($this->bbc['lineheight']);
+		}
+		private function OpenTag($tag, $attr)	{
+			//Opening tag
+			switch($tag){
+				case 'b':
+				case 'i':
+				case 'u':
+					$this->SetStyle($tag,true);
+					break;
+				case 'url':
+					$this->bbc['href'] = $attr['url'];
+					break;
+				case 'img':
+					$this->bbc['img']['use'] = true;
+					$this->bbc['img']['width'] = isset($attr['width'])?$attr['width']:0;
+					$this->bbc['img']['height'] = isset($attr['height'])?$attr['height']:0;
+					break;
+				case 'br':
+					$this->Ln($this->bbc['lineheight']);
+					$this->bbc['lineheight'] = 5;
+					break;
+				case 'size':
+					if(isset($attr['size'])){
+						$s = 10*((1/3)*$attr['size'] + (1/3));
+						$this->SetFont('Arial','',$s);
+						$this->setBBCLineHeight($s/2);
+					}
+					break;
+				case 'color':
+					if(isset($attr['color'])){
+						$c = ltrim($attr['color'],'#');
+						$r = 0;
+						$g = 0;
+						$b = 0;
+						if(strlen($c) == 6){
+							$r = hexdec(substr($c,0,2));
+							$g = hexdec(substr($c,2,2));
+							$b = hexdec(substr($c,4,2));
+						}else{
+							$r = hexdec($c[0]);
+							$g = hexdec($c[1]);
+							$b = hexdec($c[2]);
+						}
+						$this->SetTextColor($r,$g,$b);
+					}
+					break;
+				case 'youtube':
+					$this->bbc['youtube'] = true;
+					break;
+			}
+		}
+		private function CloseTag($tag){
+			//Closing tag
+			switch($tag){
+				case 'b':
+				case 'i':
+				case 'u':
+					$this->SetStyle($tag,false);
+					break;
+				case 'url':
+					$this->bbc['href'] = '';
+					break;
+				case 'img':
+					$this->bbc['img']['use'] = false;
+					break;
+				case 'size':
+					$this->SetFont('Arial','',10);
+					break;
+				case 'color':
+					$this->SetTextColor(0);
+					break;
+				case 'youtube':
+					$this->bbc['youtube'] = false;
+					break;
+			}
+		}
+		private function SetStyle($tag, $enable){
+			//Modify style and select corresponding font
+			$this->bbc[$tag]+=($enable ? 1 : -1);
+			$style='';
+			foreach(array('b','i','u') as $s)
+			{
+				if($this->bbc[$s]>0)
+					$style.=$s;
+			}
+			$this->SetFont('',$style);
+		}
+		private function PutLink($URL, $txt){
+			//Put a hyperlink
+			$this->SetTextColor(0,0,255);
+			$this->SetStyle('u',true);
+			$this->Write($this->bbc['lineheight'],$txt,$URL);
+			$this->SetStyle('u',false);
+			$this->SetTextColor(0);
+		}
+		public function getImgWidth($s){
+			if(isset($this->images[$s])){
+				return $this->images[$s]['w'];
+			}
+			return -1;
+		}
+		public function getImgHeight($s){
+			if(isset($this->images[$s])){
+				return $this->images[$s]['h'];
+			}
+			return -1;
+		}
+	}
+	$pdf = new PDF('P','mm','A4');
+	
+	$textImageNotes = function($startJ,$j,$imgs) use ($pdf){
+		$haveNotes = false;
+		for($k = $startJ;$k < $j;$k++){
+			$haveNotes |= $imgs[$k]->haveAnnotations;
+		}
+		if(!$haveNotes){
+			$pdf->Ln($imgs[$startJ]->dh + 10);
+			return;
+		}
+		
+		$pdf->SetFont('Arial','',9);
+		$pdf->SetTextColor(0x77);
+		$first = true;
+		$maxNotes = 0;
+		for($k = $startJ;$k < $j;$k++){
+			if($imgs[$k]->haveAnnotations){
+				if($first){
+					$pdf->SetY($imgs[$k]->y + $imgs[$k]->dh - 5);
+					$pdf->Ln();
+					$first = false;
+				}
+				$pdf->SetX($imgs[$k]->x);
+				
+				$pdf->Cell(0,5,'Image Notes:');
+				$size = sizeof($imgs[$k]->getAnnotations());
+				if($size > $maxNotes){
+					$maxNotes = $size;
+				}
+			}
+		}
+		
+		for($l = 0;$l < $maxNotes;$l++){
+			$pdf->Ln();
+			for($k = $startJ;$k < $j;$k++){
+				if($imgs[$k]->haveAnnotations){
+					$annotations = $imgs[$k]->getAnnotations();
+					if(isset($annotations[$l])){
+						$pdf->SetX($imgs[$k]->x);
+						$pdf->Cell(0,5,($l+1).': '.$annotations[$l]['body_parsed']);
+					}
+				}
+			}
+		}
+		$pdf->Ln(10);
+		
+	};
+	
+	$pdf->AliasNbPages();
+	$pdf->SetTitle($instr->name,true);
+	$pdf->SetCreator('knexflux.net',true);
+	if($instr->owner['id_member']!=-1){
+		$pdf->SetAuthor($instr->owner['member_name'],true);
+	}
+	$pdf->SetMargins(10,10);
+	$pdf->AddPage();
+	
+	// print the name of the instruction
+	$pdf->SetFont('Arial','B',25);
+	$pdf->Cell(0,3,$instr->name,0,1,'',false,$instr->getUrl());
+	$pdf->SetFont('Arial','B',10);
+	$pdf->Cell(0,10,'By: '.$instr->owner['member_name'],0,1);
+	
+	// print the steps
+	foreach($instr->steps as $i => $step){
+		if($pdf->GetY() + 70 > $pdf->getPageHeight()){
+			$pdf->AddPage();
+		}
+		$pdf->SetFont('Arial','',16);
+		$pdf->Cell(0,10,$i==0?$txt['inst_intro']:$txt['inst_step'].' '.$i.': '.$step['title_parsed'],0,1);
+		$maxHeight = 0;
+		$startJ = 0;
+		foreach($step['images'] as $j => &$img){
+			$x = $pdf->GetX();
+			$y = $pdf->GetY();
+			
+			$imgPath = $img->getPath('medium');
+			$pdf->preLoadImage($imgPath);
+			$h = $pdf->getImgHeight($imgPath);
+			$w = $pdf->getImgWidth($imgPath);
+			$dh = 65;
+			$scale = $dh / $h;
+			$dw = $scale * $w;
+			
+			if($x + $dw - 10 > $pdf->getRenderWidth()){
+				$textImageNotes($startJ,$j,$step['images']);
+				
+				$y = $pdf->GetY();
+				$startJ = $j;
+				if($y + $dh >= $pdf->getPageHeight()){
+					$pdf->AddPage();
+				}
+				$x = $pdf->GetX();
+				$y = $pdf->GetY();
+			}
+			$img->x = $x;
+			$img->y = $y;
+			$img->dh = $dh;
+			$img->dw = $dw;
+			$img->haveAnnotations = sizeof($img->getAnnotations()) > 0;
+			
+			$pdf->Image($imgPath,$x,$y,0,$dh);
+			
+			
+			$nx = $x + $dw + 10;
+			$ny = $y;
+			
+			if($img->haveAnnotations){
+				$pdf->SetFont('Arial','',8);
+				$pdf->SetFillColor(255);
+				$pdf->SetTextColor(0);
+				foreach($img->getAnnotations() as $k => $ann){
+					$k++;
+					$pdf->SetXY($x + ($dw*$ann['x']) - 0.1,$y + ($dh*$ann['y']) - 0.1);
+					$pdf->Cell($pdf->GetStringWidth((string)$j) + 1,3,'',0,0,'',true);
+					$pdf->SetXY($x + ($dw*$ann['x']) - 0.5,$y + ($dh*$ann['y']) - 0.5);
+					$pdf->Cell(0,4,(string)$k);
+					
+					$pdf->SetDrawColor(255);
+					$pdf->SetLineWidth(0.3);
+					$pdf->SetXY($x + ($dw*$ann['x']),$y + ($dh*$ann['y']));
+					$pdf->Cell($dw*$ann['w'] - 0.2,$dh*$ann['h'] - 0.2,'',1);
+					
+					$pdf->SetDrawColor(0);
+					$pdf->SetLineWidth(0.1);
+					$pdf->SetXY($x + ($dw*$ann['x']) - 0.1,$y + ($dh*$ann['y']) - 0.1);
+					$pdf->Cell($dw*$ann['w'],$dh*$ann['h'],'',1);
+				}
+			}
+			$pdf->SetXY($nx,$ny);
+			
+		}
+		$textImageNotes($startJ,$j+1,$step['images']); // $j+1 as we need to have one higher because else the for-loop increases for us
+		
+		
+		$pdf->WriteBBC($step['body']);
+		$pdf->Ln(10);
+	}
+	$pdf->Output('I',$instr->name.'.pdf',true);
 }
 
 ?>

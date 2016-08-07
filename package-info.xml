@@ -10,6 +10,8 @@
 		<modification>install.xml</modification>
 		<require-file name="Subs-Instructions.php" destination="$sourcedir" />
 		<require-file name="Instructions.php" destination="$sourcedir" />
+		<require-dir name="font" destination="$sourcedir" />
+		<require-file name="fpdf.php" destination="$sourcedir" />
 		<require-file name="Instructions.template.php" destination="$themedir" />
 		<require-file name="instructions.css" destination="$themedir/css" />
 		<require-file name="instructions.js" destination="$themedir/scripts" />
@@ -28,8 +30,10 @@
 
 	<uninstall for="2.0 - 2.99.99">
 		<modification type="file" reverse="true">install.xml</modification>
+		<remove-dir name="$sourcedir/font" />
 		<remove-file name="$sourcedir/Subs-Instructions.php" />
 		<remove-file name="$sourcedir/Instructions.php" />
+		<remove-file name="$sourcedir/fpdf.php" />
 		<remove-file name="$themedir/Instructions.template.php" />
 		<remove-file name="$themedir/css/instructions.css" />
 		<remove-file name="$themedir/scripts/instructions.js" />

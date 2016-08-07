@@ -63,6 +63,9 @@ function InstructionsMain(){
 		case 'import':
 			$instr->goEdit()->import(json_decode($_REQUEST['data'],true))->data();
 			break;
+		case 'pdf':
+			$instr->loadSteps('all')->pdf();
+			break;
 		default:
 			$instr->loadSteps(isset($_REQUEST['allsteps'])?'all':0)->view();
 	}
@@ -290,7 +293,7 @@ class Instruction{
 			$title = '';
 			if($i != 0 && !isset($_REQUEST['allsteps']) && !empty($modSettings['pretty_enable_filters'])){
 				include_once($sourcedir.'/Subs-PrettyUrls.php');
-				$title = pretty_generate_url($step['title']);
+				$title = pretty_generate_url($row['title']);
 			}
 			
 			$this->steps[$i] = array(
@@ -514,6 +517,14 @@ class Instruction{
 		loadMemberData((int)$this->owner['id_member']); // load some data about the author
 		loadMemberContext((int)$this->owner['id_member']);
 		return $this->mustView()->loadLinkTree()->get();
+	}
+	public function pdf(){
+		$this->mustView()->get();
+		loadLanguage('Instructions');
+		loadTemplate('Instructions');
+		
+		template_instruction_pdf();
+		exit;
 	}
 	public function edit(){
 		global $context,$settings,$smcFunc,$modSettings,$txt;
@@ -1106,12 +1117,10 @@ class InstructionFile{
 	);
 	private $annotations = array();
 	private function getImageObject($res){
-		global $modSettings;
-		
 		// get image URL sizes
 		$this->id = (int)$res['id'];
 		$this->owner = (int)$res['owner'];
-		$imgdir = $modSettings['instructions_uploads_url'].'/'.$this->id.'/';
+		$imgdir = '/'.$this->id.'/';
 		$resizeTypes = explode(',',$res['resizeTypes']);
 		$this->urls = array(
 			'square' => $imgdir.'square.jpg',
@@ -1132,6 +1141,9 @@ class InstructionFile{
 		
 		
 		$this->annotations = json_decode($res['annotations'],true);
+		if(!$this->annotations){
+			$this->annotations = array();
+		}
 		foreach($this->annotations as &$a){
 			$a['body_parsed'] = parse_bbc(htmlentities($a['body']));
 		}
@@ -1166,16 +1178,29 @@ class InstructionFile{
 		$this->annotations = $newAnnotations;
 	}
 	public function getUrl($type = 'original'){
+		global $modSettings;
 		if(isset($this->urls[$type])){
-			return $this->urls[$type];
+			return $modSettings['instructions_uploads_url'].$this->urls[$type];
 		}
-		return $this->urls['original'];
+		return $modSettings['instructions_uploads_url'].$this->urls['original'];
+	}
+	public function getPath($type = 'original'){
+		global $modSettings;
+		if(isset($this->urls[$type])){
+			return $modSettings['instructions_uploads_path'].$this->urls[$type];
+		}
+		return $modSettings['instructions_uploads_path'].$this->urls['original'];
 	}
 	public function getId(){
 		return $this->id;
 	}
 	public function getJSON($extra_urls = array()){
+		global $modSettings;
 		$urls = $this->urls;
+		foreach($urls as &$u){
+			$u = $modSettings['instructions_uploads_url'].$u;
+		}
+		unset($u);
 		foreach($extra_urls as $u){
 			$urls[$u] = $this->getUrl($u);
 		}
@@ -1555,7 +1580,8 @@ function InstructionsDisplayCat(){
 		$context['instruction_cat'] = array(
 			'name' => $path[-1],
 			'id' => -1,
-			'path' => $path
+			'path' => $path,
+			'num_instructions' => 0
 		);
 		$children = array();
 		
