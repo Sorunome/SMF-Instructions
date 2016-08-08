@@ -634,7 +634,7 @@ class Instruction{
 			'author' => array(
 				'id' => $this->owner['id_member'],
 				'url' => $scripturl.'?action=profile;u='.$this->owner['id_member'],
-				'name' => $this->owner['member_name']
+				'name' => $this->owner['real_name']
 			),
 			'published' => $this->published
 		);
@@ -1492,7 +1492,7 @@ function InstructionsGetCatOrderBy($offset){
 		'rating' => '(i.upvotes - i.downvotes)',
 		'views' => 'i.views',
 		'date' => 'i.publish_date',
-		'author' => 'u.member_name'
+		'author' => 'u.real_name'
 	);
 	$directionmap = array(
 		'asc' => 'ASC',

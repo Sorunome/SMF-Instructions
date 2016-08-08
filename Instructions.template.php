@@ -614,7 +614,7 @@ function template_instruction_pdf(){
 	$pdf->SetTitle($instr->name,true);
 	$pdf->SetCreator('knexflux.net',true);
 	if($instr->owner['id_member']!=-1){
-		$pdf->SetAuthor($instr->owner['member_name'],true);
+		$pdf->SetAuthor($instr->owner['real_name'],true);
 	}
 	$pdf->SetMargins(10,10);
 	$pdf->AddPage();
@@ -623,7 +623,7 @@ function template_instruction_pdf(){
 	$pdf->SetFont('Arial','B',25);
 	$pdf->Cell(0,3,$instr->name,0,1,'',false,$instr->getUrl());
 	$pdf->SetFont('Arial','B',10);
-	$pdf->Cell(0,10,'By: '.$instr->owner['member_name'],0,1);
+	$pdf->Cell(0,10,'By: '.$instr->owner['real_name'],0,1);
 	
 	// print the steps
 	foreach($instr->steps as $i => $step){
