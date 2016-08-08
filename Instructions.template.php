@@ -355,6 +355,10 @@ function template_instruction_pdf(){
 			$this->SetTextColor(0xAC,0x3C,0x2E);
 			$this->Cell(8);
 			$this->Cell(0,4,'Knexflux',0,0,'',false,'https://knexflux.net');
+			$this->setFont('','',15);
+			$this->SetTextColor(0xDD);
+			$this->SetX(-$this->GetStringWidth('https://knexflux.net')-8);
+			$this->Cell(0,4,'https://knexflux.net',0,0,'',false,'https://knexflux.net');
 			$this->SetXY(6,20);
 			$this->Cell($this->DefPageSize[0] - 12,0,'','T');
 			$this->SetXY($this->lMargin,26);
@@ -458,7 +462,7 @@ function template_instruction_pdf(){
 						$this->Cell(50,30,'Youtube Video',1,0,'C',0,'https://www.youtube.com/watch?v='.$e);
 						$this->setBBCLineHeight(30);
 					}else{
-						$this->Write($this->bbc['lineheight'],stripslashes($e));
+						$this->Write($this->bbc['lineheight'],mb_convert_encoding(stripslashes($e),'ISO-8859-1','UTF-8'));
 					}
 				}else{
 					//Tag
@@ -575,7 +579,7 @@ function template_instruction_pdf(){
 			//Put a hyperlink
 			$this->SetTextColor(0,0,255);
 			$this->SetStyle('u',true);
-			$this->Write($this->bbc['lineheight'],$txt,$URL);
+			$this->Write($this->bbc['lineheight'],mb_convert_encoding($txt,'ISO-8859-1','UTF-8'),$URL);
 			$this->SetStyle('u',false);
 			$this->SetTextColor_str($this->bbc['defcolor']);
 		}
@@ -627,18 +631,18 @@ function template_instruction_pdf(){
 		
 		for($l = 0;$l < $maxNotes;$l++){
 			$pdf->Ln();
-			$y = $pdf->GetY();
 			for($k = $startJ;$k < $j;$k++){
 				if($imgs[$k]->haveAnnotations){
 					$annotations = $imgs[$k]->getAnnotations();
 					if(isset($annotations[$l])){
 						$pdf->SetFont('Arial','',9);
 						$pdf->SetTextColor(0x77);
-						$pdf->SetY($y);
+						
 						$pdf->SetX($imgs[$k]->x);
 						$s = ($l+1).': ';
 						$pdf->Cell(0,5,$s);
-						$pdf->SetY($y);
+						$y = $pdf->GetY();
+						
 						$w = $pdf->GetStringWidth($s);
 						$x = $w + $imgs[$k]->x;
 						$pdf->SetX($x);
@@ -663,9 +667,9 @@ function template_instruction_pdf(){
 	
 	// print the name of the instruction
 	$pdf->SetFont('Arial','B',25);
-	$pdf->Cell(0,3,$instr->name,0,1,'',false,$instr->getUrl());
+	$pdf->Cell(0,3,mb_convert_encoding($instr->name,'ISO-8859-1','UTF-8'),0,1,'',false,$instr->getUrl());
 	$pdf->SetFont('Arial','B',10);
-	$pdf->Cell(0,10,'By: '.$instr->owner['real_name'],0,1);
+	$pdf->Cell(0,10,mb_convert_encoding('By: '.$instr->owner['real_name'],'ISO-8859-1','UTF-8'),0,1);
 	
 	// print the steps
 	foreach($instr->steps as $i => $step){
@@ -673,7 +677,7 @@ function template_instruction_pdf(){
 			$pdf->AddPage();
 		}
 		$pdf->SetFont('Arial','',16);
-		$pdf->Cell(0,10,$i==0?$txt['inst_intro']:$txt['inst_step'].' '.$i.': '.$step['title_parsed'],0,1);
+		$pdf->Cell(0,10,mb_convert_encoding($i==0?$txt['inst_intro']:$txt['inst_step'].' '.$i.': '.$step['title_parsed'],'ISO-8859-1','UTF-8'),0,1);
 		$maxHeight = 0;
 		$startJ = 0;
 		foreach($step['images'] as $j => &$img){
