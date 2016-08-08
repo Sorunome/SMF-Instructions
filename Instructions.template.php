@@ -340,6 +340,8 @@ function template_instruction_pdf(){
 			'u' => 0,
 			'href' => '',
 			'lineheight' => 5,
+			'defsize' => 2,
+			'defcolor' => '#000',
 			'fontlist' => array('arial', 'times', 'courier', 'helvetica', 'symbol'),
 			'issetfont' => false,
 			'issetcolor' => false
@@ -402,23 +404,35 @@ function template_instruction_pdf(){
 				$this->bbc['lineheight'] = $h;
 			}
 		}
-		public function WriteBBC($bbc){
-			//HTML parser
-			//$html=strip_tags($html,"<b><u><i><a><img><p><br><strong><em><font><tr><blockquote>"); //supprime tous les tags sauf ceux reconnus
+		public function WriteBBC($bbc,$l = NULL,$w = NULL,$color = '#000',$size = 2){
+			$preLMargin = $this->lMargin;
+			$preRMargin = $this->rMargin;
+			if($l !== NULL){
+				$this->lMargin = $l;
+			}
+			if($w !== NULL){
+				$this->rMargin = $this->DefPageSize[0] - $this->lMargin - $w;
+			}
 			
-			$this->SetFont('Arial','',10);
-			$this->SetTextColor(0);
+			$this->bbc['defcolor'] = $color;
+			$this->bbc['defsize'] = 10*((1/3)*$size + (1/3));
+			
+			parsesmileys($bbc);
+			$bbc = preg_replace('/<img [^>]*?src=["\']?([^"\'>]+)["\']?[^>]*?>/','[img]$1[/img]',$bbc);
+			$this->SetFont('Arial','',$this->bbc['defsize']);
+			$this->SetTextColor_str($this->bbc['defcolor']);
 			$this->bbc['lineheight'] = 5;
 			
 			$bbc = str_replace("\n",'[br]',$bbc);
-			$a = preg_split('/\[([^\]]+)\]/U',$bbc,-1,PREG_SPLIT_DELIM_CAPTURE); //éclate la chaîne avec les balises
+			$a = preg_split('/\[([^\]]+)\]/',$bbc,-1,PREG_SPLIT_DELIM_CAPTURE);
+			
 			foreach($a as $i=>$e){
 				if($i%2==0){
 					//Text
 					if($this->bbc['href']){
 						$this->PutLink($this->bbc['href'],$e);
 					}else if($this->bbc['img']['use']){
-						$this->Image($e, $this->GetX(), $this->GetY(), $this->px2mm($this->bbc['img']['width']), $this->px2mm($this->bbc['img']['height']));
+						$this->Image($e, $this->GetX() + 1, $this->GetY(), $this->px2mm($this->bbc['img']['width']), $this->px2mm($this->bbc['img']['height']));
 						$dh = $this->bbc['img']['height'];
 						if($dh == 0){
 							$dh = $this->getImgHeight($e);
@@ -427,6 +441,17 @@ function template_instruction_pdf(){
 							}
 						}
 						$dh = $this->px2mm($dh);
+						$dw = $this->bbc['img']['width'];
+						if($dw == 0){
+							$dw = $this->getImgWidth($e);
+							if($this->bbc['img']['height'] != 0){
+								$dw *= $this->bbc['img']['height']/$this->getImgHeight($e);
+							}
+						}
+						$dw = $this->px2mm($dw);
+						
+						$this->SetX($this->GetX() + $dw);
+						
 						$this->setBBCLineHeight($dh);
 					}else if($this->bbc['youtube']){
 						$this->Cell(50,30,'Youtube Video',1,0,'C',0,'https://www.youtube.com/watch?v='.$e);
@@ -453,8 +478,26 @@ function template_instruction_pdf(){
 				}
 			}
 			$this->Ln($this->bbc['lineheight']);
+			$this->lMargin = $preLMargin;
+			$this->rMargin = $preRMargin;
 		}
-		private function OpenTag($tag, $attr)	{
+		private function SetTextColor_str($c){
+			$c = ltrim($c,'#');
+			$r = 0;
+			$g = 0;
+			$b = 0;
+			if(strlen($c) == 6){
+				$r = hexdec(substr($c,0,2));
+				$g = hexdec(substr($c,2,2));
+				$b = hexdec(substr($c,4,2));
+			}else{
+				$r = hexdec($c[0])*0x11;
+				$g = hexdec($c[1])*0x11;
+				$b = hexdec($c[2])*0x11;
+			}
+			$this->SetTextColor($r,$g,$b);
+		}
+		private function OpenTag($tag, $attr){
 			//Opening tag
 			switch($tag){
 				case 'b':
@@ -483,20 +526,7 @@ function template_instruction_pdf(){
 					break;
 				case 'color':
 					if(isset($attr['color'])){
-						$c = ltrim($attr['color'],'#');
-						$r = 0;
-						$g = 0;
-						$b = 0;
-						if(strlen($c) == 6){
-							$r = hexdec(substr($c,0,2));
-							$g = hexdec(substr($c,2,2));
-							$b = hexdec(substr($c,4,2));
-						}else{
-							$r = hexdec($c[0]);
-							$g = hexdec($c[1]);
-							$b = hexdec($c[2]);
-						}
-						$this->SetTextColor($r,$g,$b);
+						$this->SetTextColor_str($attr['color']);
 					}
 					break;
 				case 'youtube':
@@ -519,10 +549,10 @@ function template_instruction_pdf(){
 					$this->bbc['img']['use'] = false;
 					break;
 				case 'size':
-					$this->SetFont('Arial','',10);
+					$this->SetFont('Arial','',$this->bbc['defsize']);
 					break;
 				case 'color':
-					$this->SetTextColor(0);
+					$this->SetTextColor_str($this->bbc['defcolor']);
 					break;
 				case 'youtube':
 					$this->bbc['youtube'] = false;
@@ -546,7 +576,7 @@ function template_instruction_pdf(){
 			$this->SetStyle('u',true);
 			$this->Write($this->bbc['lineheight'],$txt,$URL);
 			$this->SetStyle('u',false);
-			$this->SetTextColor(0);
+			$this->SetTextColor_str($this->bbc['defcolor']);
 		}
 		public function getImgWidth($s){
 			if(isset($this->images[$s])){
@@ -573,10 +603,10 @@ function template_instruction_pdf(){
 			return;
 		}
 		
-		$pdf->SetFont('Arial','',9);
-		$pdf->SetTextColor(0x77);
 		$first = true;
 		$maxNotes = 0;
+		$pdf->SetFont('Arial','',9);
+		$pdf->SetTextColor(0x77);
 		for($k = $startJ;$k < $j;$k++){
 			if($imgs[$k]->haveAnnotations){
 				if($first){
@@ -596,12 +626,23 @@ function template_instruction_pdf(){
 		
 		for($l = 0;$l < $maxNotes;$l++){
 			$pdf->Ln();
+			$y = $pdf->GetY();
 			for($k = $startJ;$k < $j;$k++){
 				if($imgs[$k]->haveAnnotations){
 					$annotations = $imgs[$k]->getAnnotations();
 					if(isset($annotations[$l])){
+						$pdf->SetFont('Arial','',9);
+						$pdf->SetTextColor(0x77);
+						$pdf->SetY($y);
 						$pdf->SetX($imgs[$k]->x);
-						$pdf->Cell(0,5,($l+1).': '.$annotations[$l]['body_parsed']);
+						$s = ($l+1).': ';
+						$pdf->Cell(0,5,$s);
+						$pdf->SetY($y);
+						$w = $pdf->GetStringWidth($s);
+						$x = $w + $imgs[$k]->x;
+						$pdf->SetX($x);
+						$pdf->WriteBBC($annotations[$l]['body'],$x,$imgs[$k]->dw - $w,'#777',1.7);
+						$pdf->SetY($y);
 					}
 				}
 			}
@@ -627,7 +668,7 @@ function template_instruction_pdf(){
 	
 	// print the steps
 	foreach($instr->steps as $i => $step){
-		if($pdf->GetY() + 70 > $pdf->getPageHeight()){
+		if($pdf->GetY() + 83 > $pdf->getPageHeight()){
 			$pdf->AddPage();
 		}
 		$pdf->SetFont('Arial','',16);
@@ -695,7 +736,6 @@ function template_instruction_pdf(){
 			
 		}
 		$textImageNotes($startJ,$j+1,$step['images']); // $j+1 as we need to have one higher because else the for-loop increases for us
-		
 		
 		$pdf->WriteBBC($step['body']);
 		$pdf->Ln(10);
