@@ -424,6 +424,7 @@ function template_instruction_pdf(){
 			$this->bbc['lineheight'] = 5;
 			
 			$bbc = str_replace("\n",'[br]',$bbc);
+			$bbc = str_replace('<br>','[br]',$bbc);
 			$a = preg_split('/\[([^\]]+)\]/',$bbc,-1,PREG_SPLIT_DELIM_CAPTURE);
 			
 			foreach($a as $i=>$e){

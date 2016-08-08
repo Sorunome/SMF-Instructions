@@ -204,7 +204,7 @@ function instruction_dispImage(step,id,invocedElem){
 							}).append(
 								$('<span>').addClass('instruction_annotationNum').addClass(altAnnotations?'':'hoverannotations').text(i+1)
 							),
-							$('<div>').addClass('instruction_annotationText').addClass(altAnnotations?'':'hoverannotations').html((altAnnotations?(i+1).toString()+': ':'')+a.body).css({
+							$('<div>').addClass('instruction_annotationText').addClass(altAnnotations?'':'hoverannotations').html((altAnnotations?(i+1).toString()+': ':'')+a.body_parsed).css({
 								'top':$mainImg.height()*(a.y+a.h) + $mainImg.position().top,
 								'left':$mainImg.width()*a.x + $mainImg.position().left
 							})
@@ -402,7 +402,7 @@ function instruction_edit_initImport(){
 														h:a.height,
 														y:a.top,
 														x:a.left,
-														body:a.text
+														body:$('#instructions_edit_bbceditor').sceditor('instance').toBBCode(a.text)
 													}
 												})
 											};
